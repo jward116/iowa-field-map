@@ -1,91 +1,91 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Iowa Tribe Intel - Field Map</title>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Iowa Tribe Intel - Tactical Map</title>
+    
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
     <style>
-        body { margin: 0; padding: 0; background: #121212; font-family: sans-serif; overflow: hidden; }
-        #map { height: 100vh; width: 100vw; z-index: 1; }
+        body { 
+            margin: 0; 
+            padding: 0; 
+            background-color: #000000; /* Pure black for MDT screens */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            overflow: hidden; 
+        }
+        #map { 
+            height: 100vh; 
+            width: 100vw; 
+            z-index: 1; 
+        }
+        /* Tactical UI Overlay */
         #ui-layer { 
-            position: absolute; top: 0; width: 100%; z-index: 1000; pointer-events: none;
+            position: absolute; 
+            top: 0; 
+            width: 100%; 
+            z-index: 1000; 
+            pointer-events: none;
         }
-        .panel {
-            pointer-events: auto; background: rgba(26, 26, 26, 0.95); color: white; 
-            padding: 12px; border-bottom: 2px solid #333; display: flex; justify-content: space-between;
+        .header-panel {
+            pointer-events: auto; 
+            background: rgba(15, 15, 15, 0.95); 
+            color: #ffffff; 
+            padding: 10px 15px; 
+            border-bottom: 2px solid #333333; 
+            display: flex; 
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
         }
-        #status-box {
-            position: absolute; bottom: 20px; left: 10px; z-index: 1000;
-            background: rgba(0,0,0,0.8); color: #4ade80; padding: 8px 12px;
-            border-radius: 5px; font-size: 11px; border: 1px solid #444;
+        .system-title {
+            color: #00ff00; /* High-vis tactical green */
+            font-weight: 900;
+            letter-spacing: 1px;
+            font-size: 14px;
+        }
+        .status-indicator {
+            font-size: 12px;
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 3px;
+            background: rgba(255, 0, 0, 0.2);
+            color: #ff4444;
+            border: 1px solid #ff4444;
         }
     </style>
 </head>
 <body>
+
     <div id="ui-layer">
-        <div class="panel">
-            <div style="display: flex; alignItems: center; gap: 8px;">
-                <span style="color: #4ade80; font-weight: bold;">IOWA TRIBE INTEL</span>
-            </div>
-            <div id="gps-status" style="font-size: 12px; color: #ff4444;">GPS: OFF</div>
+        <div class="header-panel">
+            <div class="system-title">IOWA TRIBE INTEL // SECURE TERMINAL</div>
+            <div id="gps-status" class="status-indicator">GPS: OFFLINE</div>
         </div>
     </div>
 
-    <div id="status-box">SYSTEM IDLE - ZOOM IN FOR PARCELS</div>
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script src="https://unpkg.com/esri-leaflet@3.0.10/dist/esri-leaflet.js"></script>
+
     <script>
-        const map = L.map('map', { zoomControl: false }).setView([39.85, -95.15], 13);
-        const statusBox = document.getElementById('status-box');
+        // Initialize Map focused on White Cloud region
+        const map = L.map('map', {
+            zoomControl: false, // We will build a custom, larger zoom control later for touchscreens
+            attributionControl: false // Cleans up the UI
+        }).setView([39.9772, -95.2974], 12);
 
-        // 1. Satellite & Hybrid Layers
-        const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}').addTo(map);
-        const labels = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}').addTo(map);
+        // Load CartoDB Dark Matter Base (Tactical Night Mode)
+        const darkBase = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 20,
+            subdomains: 'abcd'
+        }).addTo(map);
 
-        // 2. Tribal Boundary
-        fetch("https://services.arcgis.com/P3ePLMYs2RVChqkv/arcgis/rest/services/USA_Tribal_Lands/FeatureServer/0/query?where=BASENAME%20%3D%20'Iowa%20(KS-NE)'&outFields=*&f=geojson")
-            .then(r => r.json())
-            .then(data => {
-                L.geoJSON(data, { style: { color: '#4ade80', weight: 4, fillOpacity: 0.1 } }).addTo(map);
-            });
-
-        // 3. Dynamic Parcel Engine (Doniphan & Brown)
-        const DONIPHAN_URL = "https://services8.integritygis.com/arcgis/rest/services/KS/Doniphan_Appraiser_Data/MapServer/export";
-        const BROWN_URL = "https://services.kgs.ku.edu/arcgis/rest/services/ORKA/KS_ORKA_Extras/MapServer/export";
-        
-        let parcelOverlay = null;
-
-        function refreshParcels() {
-            const zoom = map.getZoom();
-            const b = map.getBounds();
-            
-            if (parcelOverlay) { map.removeLayer(parcelOverlay); }
-
-            if (zoom >= 14) {
-                statusBox.innerHTML = "LOADING PROPERTY LINES...";
-                const bbox = `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`;
-                
-                // For this demo, we'll focus on Doniphan's server
-                const url = `${DONIPHAN_URL}?bbox=${bbox}&bboxSR=4326&layers=show:0&format=png32&transparent=true&f=image`;
-                
-                parcelOverlay = L.imageOverlay(url, b, { opacity: 1, zIndex: 500 }).addTo(map);
-                statusBox.innerHTML = "PARCELS ACTIVE (ZOOM: " + zoom + ")";
-            } else {
-                statusBox.innerHTML = "ZOOM IN FURTHER FOR PARCELS";
-            }
-        }
-
-        map.on('moveend', refreshParcels);
-
-        // 4. GPS Tracking
-        const userMarker = L.circle([0,0], { radius: 8, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 1 }).addTo(map);
-        navigator.geolocation.watchPosition((p) => {
-            const loc = [p.coords.latitude, p.coords.longitude];
-            userMarker.setLatLng(loc);
-            document.getElementById('gps-status').innerHTML = "GPS: LOCKED";
-            document.getElementById('gps-status').style.color = "#4ade80";
-        }, null, { enableHighAccuracy: true });
+        // --- Future Data Hooks go here ---
+        // We will wire the Esri parcel layer and the GeoJSON boundary next.
 
     </script>
 </body>
