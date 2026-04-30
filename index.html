@@ -1,56 +1,92 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Iowa Tribe Field Map</title>
+    <title>Iowa Tribe Intel - Field Map</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { margin: 0; padding: 0; background: #121212; font-family: sans-serif; }
-        #map { height: 100vh; width: 100vw; }
-        #header { 
-            position: absolute; top: 0; width: 100%; z-index: 1000;
-            background: rgba(26, 26, 26, 0.9); color: white; padding: 15px;
-            border-bottom: 2px solid #333; display: flex; justify-content: space-between;
+        body { margin: 0; padding: 0; background: #121212; font-family: sans-serif; overflow: hidden; }
+        #map { height: 100vh; width: 100vw; z-index: 1; }
+        #ui-layer { 
+            position: absolute; top: 0; width: 100%; z-index: 1000; pointer-events: none;
+        }
+        .panel {
+            pointer-events: auto; background: rgba(26, 26, 26, 0.95); color: white; 
+            padding: 12px; border-bottom: 2px solid #333; display: flex; justify-content: space-between;
+        }
+        #status-box {
+            position: absolute; bottom: 20px; left: 10px; z-index: 1000;
+            background: rgba(0,0,0,0.8); color: #4ade80; padding: 8px 12px;
+            border-radius: 5px; font-size: 11px; border: 1px solid #444;
         }
     </style>
 </head>
 <body>
-    <div id="header">
-        <div style="font-weight: bold; color: #4ade80;">IOWA TRIBE INTEL</div>
-        <div id="status" style="font-size: 12px; color: #ff4444;">SEARCHING GPS...</div>
+    <div id="ui-layer">
+        <div class="panel">
+            <div style="display: flex; alignItems: center; gap: 8px;">
+                <span style="color: #4ade80; font-weight: bold;">IOWA TRIBE INTEL</span>
+            </div>
+            <div id="gps-status" style="font-size: 12px; color: #ff4444;">GPS: OFF</div>
+        </div>
     </div>
+
+    <div id="status-box">SYSTEM IDLE - ZOOM IN FOR PARCELS</div>
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // 1. Initialize Map
-        const map = L.map('map').setView([39.85, -95.15], 12);
+        const map = L.map('map', { zoomControl: false }).setView([39.85, -95.15], 13);
+        const statusBox = document.getElementById('status-box');
 
-        // 2. Add Satellite Imagery
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}').addTo(map);
-        L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}').addTo(map);
+        // 1. Satellite & Hybrid Layers
+        const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}').addTo(map);
+        const labels = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}').addTo(map);
 
-        // 3. Load Iowa Tribe Boundary
+        // 2. Tribal Boundary
         fetch("https://services.arcgis.com/P3ePLMYs2RVChqkv/arcgis/rest/services/USA_Tribal_Lands/FeatureServer/0/query?where=BASENAME%20%3D%20'Iowa%20(KS-NE)'&outFields=*&f=geojson")
             .then(r => r.json())
             .then(data => {
-                L.geoJSON(data, { style: { color: '#4ade80', weight: 3, fillOpacity: 0.1 } }).addTo(map);
+                L.geoJSON(data, { style: { color: '#4ade80', weight: 4, fillOpacity: 0.1 } }).addTo(map);
             });
 
-        // 4. Real-Time GPS
-        const statusEl = document.getElementById('status');
-        const userMarker = L.circle([0,0], { radius: 10, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 1 }).addTo(map);
+        // 3. Dynamic Parcel Engine (Doniphan & Brown)
+        const DONIPHAN_URL = "https://services8.integritygis.com/arcgis/rest/services/KS/Doniphan_Appraiser_Data/MapServer/export";
+        const BROWN_URL = "https://services.kgs.ku.edu/arcgis/rest/services/ORKA/KS_ORKA_Extras/MapServer/export";
+        
+        let parcelOverlay = null;
 
+        function refreshParcels() {
+            const zoom = map.getZoom();
+            const b = map.getBounds();
+            
+            if (parcelOverlay) { map.removeLayer(parcelOverlay); }
+
+            if (zoom >= 14) {
+                statusBox.innerHTML = "LOADING PROPERTY LINES...";
+                const bbox = `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`;
+                
+                // For this demo, we'll focus on Doniphan's server
+                const url = `${DONIPHAN_URL}?bbox=${bbox}&bboxSR=4326&layers=show:0&format=png32&transparent=true&f=image`;
+                
+                parcelOverlay = L.imageOverlay(url, b, { opacity: 1, zIndex: 500 }).addTo(map);
+                statusBox.innerHTML = "PARCELS ACTIVE (ZOOM: " + zoom + ")";
+            } else {
+                statusBox.innerHTML = "ZOOM IN FURTHER FOR PARCELS";
+            }
+        }
+
+        map.on('moveend', refreshParcels);
+
+        // 4. GPS Tracking
+        const userMarker = L.circle([0,0], { radius: 8, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 1 }).addTo(map);
         navigator.geolocation.watchPosition((p) => {
-            const lat = p.coords.latitude;
-            const lng = p.coords.longitude;
-            userMarker.setLatLng([lat, lng]);
-            map.setView([lat, lng], 15);
-            statusEl.innerHTML = "GPS LOCKED";
-            statusEl.style.color = "#4ade80";
-        }, (e) => {
-            statusEl.innerHTML = "GPS ERROR";
-        }, { enableHighAccuracy: true });
+            const loc = [p.coords.latitude, p.coords.longitude];
+            userMarker.setLatLng(loc);
+            document.getElementById('gps-status').innerHTML = "GPS: LOCKED";
+            document.getElementById('gps-status').style.color = "#4ade80";
+        }, null, { enableHighAccuracy: true });
+
     </script>
 </body>
 </html>
