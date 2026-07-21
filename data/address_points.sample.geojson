@@ -1,0 +1,30 @@
+{
+  "type": "FeatureCollection",
+  "note": "SAMPLE format only. Rename to address_points.geojson (drop the .sample) to load in the map. Populate from your NG911 / tribal address points. Coordinates are [lng, lat] (GeoJSON order).",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "address": "1302 Chay Dr",
+        "postal_city": "White Cloud",
+        "state": "KS",
+        "zip": "66094",
+        "county": "Brown",
+        "source_id": "SAMPLE-KS-1"
+      },
+      "geometry": { "type": "Point", "coordinates": [-95.2974, 39.9772] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "address": "66551 703 Trail",
+        "postal_city": "Rulo",
+        "state": "NE",
+        "zip": "",
+        "county": "Richardson",
+        "source_id": "SAMPLE-NE-1"
+      },
+      "geometry": { "type": "Point", "coordinates": [-95.4300, 40.0500] }
+    }
+  ]
+}
