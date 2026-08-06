@@ -15,6 +15,12 @@
    GIS service responses are NEVER cached. Parcel owners and address points must
    be live, and the address engine has its own corridor cache with eviction —
    caching them here would serve stale ownership without anyone realising.
+
+   Routing responses are never cached either, and for a sharper reason: a route is
+   computed from where you were when you asked. Replaying a stored one would hand
+   the driver turn-by-turn directions from a previous position while showing every
+   sign of being current. The app keeps the last route it successfully fetched in
+   memory and says so in the ROUTE badge; that is the honest form of the same idea.
    ===================================================================== */
 
 /* Cache names carry the build stamp, passed in by the page at registration time
@@ -39,9 +45,14 @@ const SHELL = [
 const isTile = url =>
     /basemaps\.cartocdn\.com/.test(url) || /\.(png|jpg|jpeg|webp)(\?|$)/.test(url);
 
-// A GIS query must never be served from cache — stale ownership is worse than none.
+/* A GIS query must never be served from cache — stale ownership is worse than none,
+   and a replayed route is worse still. Matched on shape rather than hostname so a
+   service or router repointed in SETUP is covered without editing this file. */
 const isLiveData = url =>
-    /\/(MapServer|FeatureServer)\//i.test(url) || /\/rest\/services\//i.test(url);
+    /\/(MapServer|FeatureServer)\//i.test(url) ||
+    /\/rest\/services\//i.test(url) ||
+    /\/route\/v\d\//i.test(url) ||          // OSRM, wherever it is hosted
+    /\/(GeocodeServer)\//i.test(url);
 
 self.addEventListener('install', event => {
     event.waitUntil((async () => {
