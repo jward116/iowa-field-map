@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Iowa Tribe Field Map — Parcel & Address Terminal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Iowa Tribe Field Map — Parcel &amp; Address Terminal</title>
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
@@ -48,11 +48,19 @@
             letter-spacing: 1px;
             font-size: 14px;
             white-space: nowrap;
+            cursor: default;
+            -webkit-user-select: none;
+            user-select: none;
+            /* Must be allowed to shrink, or on a phone it pushes the GPS chip off-screen. */
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .header-right {
             display: flex;
             align-items: center;
             gap: 8px;
+            flex: none;
         }
         .status-indicator {
             font-size: 12px;
@@ -73,6 +81,13 @@
             background: rgba(255, 200, 0, 0.15);
             color: #ffcc33;
             border-color: #ffcc33;
+        }
+        /* Configuration state — NOT an error. A blank service URL must never
+           look like a failure, or staff will go hunting for a bug that isn't there. */
+        .status-indicator.off {
+            background: rgba(120, 120, 120, 0.15);
+            color: #8a8a8a;
+            border-color: #555;
         }
 
         /* ---------- Bottom-left coordinate / hint readout ---------- */
@@ -183,17 +198,435 @@
         }
         .leaflet-control-layers-expanded { padding: 8px 10px; }
         .leaflet-control-layers label { font-size: 12px; }
+
+        /* =====================================================================
+           DRIVE MODE
+           Every drive-only rule keys off body[data-mode="drive"], so MAP mode's
+           styling above is never touched. Leaving drive mode is one attribute
+           flip plus the JS undo stack — see enterDrive()/exitDrive().
+           ===================================================================== */
+
+        .seg-toggle {
+            display: flex;
+            border: 1px solid #333;
+            border-radius: 4px;
+            overflow: hidden;
+            flex: none;
+        }
+        .seg-toggle button {
+            appearance: none;
+            -webkit-appearance: none;
+            border: 0;
+            background: #141414;
+            color: #8a8a8a;
+            font: inherit;
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            padding: 0 14px;
+            height: 34px;
+            min-width: 62px;
+            cursor: pointer;
+        }
+        .seg-toggle button + button { border-left: 1px solid #333; }
+        .seg-toggle button[aria-pressed="true"] {
+            background: rgba(0, 255, 0, 0.16);
+            color: #33ff77;
+            text-shadow: 0 0 6px rgba(51,255,119,0.5);
+        }
+
+        /* Drive HUD — speed, heading, accuracy, count, source health */
+        #drive-hud {
+            display: none;
+            pointer-events: auto;
+            background: rgba(15, 15, 15, 0.95);
+            border-bottom: 1px solid #333;
+            padding: 8px 14px 10px;
+            color: #ddd;
+        }
+        body[data-mode="drive"] #drive-hud { display: block; }
+        .hud-row {
+            display: flex;
+            align-items: baseline;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .hud-speed {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 36px;
+            font-weight: 900;
+            line-height: 1;
+            color: #00ff00;
+            min-width: 62px;
+            text-align: right;
+        }
+        .hud-unit { font-size: 12px; color: #8a8a8a; letter-spacing: 1px; }
+        .hud-stat {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 13px;
+            color: #c8c8c8;
+        }
+        .hud-stat b { color: #33ff77; font-weight: 700; }
+        .hud-spacer { flex: 1 1 auto; }
+        .hud-btn {
+            appearance: none;
+            -webkit-appearance: none;
+            border: 1px solid #333;
+            background: #141414;
+            color: #8a8a8a;
+            font: inherit;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            border-radius: 3px;
+            height: 34px;
+            padding: 0 12px;
+            cursor: pointer;
+        }
+        .hud-btn[aria-pressed="true"] {
+            background: rgba(0, 255, 0, 0.16);
+            color: #33ff77;
+            border-color: #33ff77;
+        }
+        .hud-sources {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+        .hud-sources .status-indicator { font-size: 10px; padding: 3px 6px; }
+
+        /* Drive-mode chrome suppression — the map you already have, minus the bits
+           that are noise at 55 mph. All of it comes straight back on exit. */
+        body[data-mode="drive"] .legend,
+        body[data-mode="drive"] .leaflet-control-layers,
+        body[data-mode="drive"] .leaflet-control-zoom,
+        body[data-mode="drive"] .locate-bar,
+        body[data-mode="drive"] #readout { display: none; }
+        /* Drive mode REMOVES the parcel layers, so a "PARCELS: LIVE" chip would be
+           telling the driver something untrue. The per-source badges in the HUD are
+           the accurate report of what is actually feeding the feed. */
+        body[data-mode="drive"] #parcel-status { display: none; }
+        body[data-mode="drive"] .system-title { font-size: 12px; }
+
+        /* Phone-width header: this runs on a handset mounted in a truck, so the
+           status chips must survive a 390–430 px viewport intact. */
+        @media (max-width: 560px) {
+            .header-panel { padding: 8px 10px; gap: 8px; }
+            .system-title { font-size: 11px; letter-spacing: 0.5px; }
+            .seg-toggle button { min-width: 52px; padding: 0 10px; font-size: 11px; }
+            .status-indicator { font-size: 10px; padding: 3px 6px; }
+            .hud-row { gap: 10px; }
+            .hud-speed { font-size: 30px; min-width: 52px; }
+        }
+
+        /* Position arrow. leaflet-rotate positions marker icons in the *unrotated*
+           map pane and only spins the icon when rotateWithView is set — so this
+           inner element's angle is a true screen angle in both orientations.
+           See updateArrow(). */
+        .drive-arrow-rot {
+            width: 44px;
+            height: 44px;
+            transition: transform .25s linear;
+            will-change: transform;
+        }
+        .drive-arrow-rot svg { display: block; }
+
+        /* Re-center button — Waze semantics: appears only once you've grabbed the
+           map, disappears when follow-lock resumes. */
+        #recenter-btn {
+            display: none;
+            position: absolute;
+            right: 14px;
+            bottom: 16px;
+            z-index: 1200;
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            border: 2px solid #33ff77;
+            background: rgba(15, 15, 15, 0.95);
+            color: #33ff77;
+            font-size: 26px;
+            line-height: 1;
+            cursor: pointer;
+            animation: recenter-pulse 1.8s infinite;
+        }
+        body[data-mode="drive"] #recenter-btn.on { display: block; }
+        @keyframes recenter-pulse {
+            0%   { box-shadow: 0 0 0 0 rgba(51,255,119,0.5); }
+            70%  { box-shadow: 0 0 0 14px rgba(51,255,119,0); }
+            100% { box-shadow: 0 0 0 0 rgba(51,255,119,0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            #recenter-btn { animation: none; }
+            .drive-arrow-rot { transition: none; }
+        }
+
+        /* ---------- Address feed (bottom sheet) ---------- */
+        #feed-sheet {
+            display: none;
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 1200;
+            background: rgba(10, 10, 10, 0.97);
+            border-top: 2px solid #333;
+            box-shadow: 0 -6px 18px rgba(0,0,0,0.7);
+            flex-direction: column;
+            padding-bottom: env(safe-area-inset-bottom, 0px);
+        }
+        body[data-mode="drive"] #feed-sheet { display: flex; }
+        #feed-handle {
+            flex: none;
+            height: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        #feed-handle::before {
+            content: '';
+            width: 46px;
+            height: 5px;
+            border-radius: 3px;
+            background: #444;
+        }
+        #feed-toolbar {
+            flex: none;
+            display: flex;
+            gap: 6px;
+            padding: 0 10px 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .feed-btn {
+            appearance: none;
+            -webkit-appearance: none;
+            border: 1px solid #333;
+            background: #141414;
+            color: #b9b9b9;
+            font: inherit;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            border-radius: 3px;
+            height: 34px;
+            padding: 0 11px;
+            cursor: pointer;
+        }
+        .feed-btn:hover { background: #202020; color: #eaeaea; }
+        .feed-btn.danger { color: #ff8888; border-color: #663333; }
+        .feed-btn[aria-pressed="true"] {
+            background: rgba(0, 255, 0, 0.16);
+            color: #33ff77;
+            border-color: #33ff77;
+        }
+        #feed-count {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12px;
+            color: #8a8a8a;
+            margin-left: auto;
+            padding-right: 4px;
+        }
+        #feed-list {
+            flex: 1 1 auto;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+        }
+        .feed-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 56px;
+            padding: 8px 12px;
+            border-bottom: 1px solid #1e1e1e;
+            cursor: pointer;
+        }
+        .feed-row:hover { background: #151515; }
+        .feed-main { flex: 1 1 auto; min-width: 0; }
+        .feed-addr {
+            font-size: 20px;
+            font-weight: 700;
+            color: #eaeaea;
+            line-height: 1.2;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .feed-sub {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12px;
+            color: #9a9a9a;
+            margin-top: 3px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .feed-owner { color: #8fbf8f; }
+        .feed-pill {
+            flex: none;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            color: #7a7a7a;
+            border: 1px solid #333;
+            border-radius: 3px;
+            padding: 3px 6px;
+        }
+        #feed-empty {
+            padding: 18px 14px;
+            color: #8a8a8a;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        #feed-empty b { color: #ffcc33; }
+        #feed-note {
+            flex: none;
+            padding: 6px 12px 10px;
+            font-size: 10px;
+            color: #6a6a6a;
+            border-top: 1px solid #1e1e1e;
+        }
+
+        /* Landscape / wide: the sheet becomes a right rail so the map keeps its height */
+        @media (orientation: landscape) and (min-width: 720px) {
+            #feed-sheet {
+                top: 0;
+                left: auto;
+                width: 38vw;
+                max-width: 460px;
+                height: auto !important;
+                border-top: 0;
+                border-left: 2px solid #333;
+                box-shadow: -6px 0 18px rgba(0,0,0,0.7);
+                padding-top: 104px;
+            }
+            #feed-handle { display: none; }
+        }
+
+        /* ---------- Toast ---------- */
+        #toast {
+            display: none;
+            position: absolute;
+            left: 50%;
+            bottom: 90px;
+            transform: translateX(-50%);
+            z-index: 1300;
+            max-width: 84vw;
+            background: rgba(20, 20, 20, 0.97);
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #eaeaea;
+            font-size: 13px;
+            padding: 10px 14px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+        }
+        #toast.on { display: block; }
+
+        /* ---------- Sim panel (verification only) ---------- */
+        #sim-panel {
+            display: none;
+            position: absolute;
+            left: 10px;
+            top: 96px;
+            z-index: 1250;
+            width: 250px;
+            max-height: 74vh;
+            overflow-y: auto;
+        }
+        #sim-panel.on { display: block; }
+        #sim-panel .legend { padding: 10px; }
+        #sim-panel h5 {
+            margin: 0 0 8px;
+            color: #ffcc33;
+            font-size: 11px;
+            letter-spacing: 1px;
+        }
+        #sim-panel label { display: block; margin: 7px 0 2px; color: #9a9a9a; font-size: 10px; }
+        #sim-panel input[type=range] { width: 100%; }
+        #sim-panel textarea {
+            width: 100%;
+            height: 52px;
+            box-sizing: border-box;
+            background: #0d0d0d;
+            color: #ddd;
+            border: 1px solid #333;
+            font-family: 'Consolas', monospace;
+            font-size: 10px;
+        }
+        .sim-btns { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
+        .sim-btns .feed-btn { height: 30px; padding: 0 9px; font-size: 10px; }
+
+        /* ---------- One-time safety acknowledgement ---------- */
+        #ack-modal {
+            display: none;
+            position: absolute;
+            inset: 0;
+            z-index: 1400;
+            background: rgba(0,0,0,0.86);
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        #ack-modal.on { display: flex; }
+        #ack-box {
+            max-width: 420px;
+            background: #101010;
+            border: 1px solid #ffcc33;
+            border-radius: 5px;
+            padding: 18px 20px;
+            color: #ddd;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        #ack-box h4 { margin: 0 0 8px; color: #ffcc33; font-size: 14px; letter-spacing: 1px; }
+
+        /* ---------- Selftest panel ---------- */
+        #selftest {
+            display: none;
+            position: absolute;
+            inset: 0;
+            z-index: 1500;
+            background: #050505;
+            color: #ddd;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12px;
+            padding: 16px;
+            overflow: auto;
+            white-space: pre-wrap;
+        }
+        #selftest.on { display: block; }
+        #selftest .pass { color: #33ff77; }
+        #selftest .fail { color: #ff5555; font-weight: bold; }
     </style>
 </head>
-<body>
+<body data-mode="map">
 
     <div id="ui-layer">
         <div class="header-panel">
-            <div class="system-title">IOWA TRIBE FIELD MAP // PARCEL &amp; ADDRESS TERMINAL</div>
+            <div class="system-title" id="system-title">IOWA TRIBE FIELD MAP</div>
+            <div class="seg-toggle" id="mode-toggle">
+                <button type="button" id="btn-map" aria-pressed="true">MAP</button>
+                <button type="button" id="btn-drive" aria-pressed="false">DRIVE</button>
+            </div>
             <div class="header-right">
                 <div id="parcel-status" class="status-indicator searching">PARCELS: ZOOM IN</div>
                 <div id="gps-status" class="status-indicator">GPS: OFFLINE</div>
             </div>
+        </div>
+        <div id="drive-hud">
+            <div class="hud-row">
+                <div class="hud-speed" id="hud-speed">--</div>
+                <div class="hud-unit">MPH</div>
+                <div class="hud-stat" id="hud-heading">HDG --</div>
+                <div class="hud-stat" id="hud-acc">&plusmn;--m</div>
+                <div class="hud-stat"><b id="hud-count">0</b> LOGGED</div>
+                <div class="hud-spacer"></div>
+                <button type="button" class="hud-btn" id="btn-headingup" aria-pressed="false">HDG UP</button>
+            </div>
+            <div class="hud-sources" id="hud-sources"></div>
         </div>
     </div>
 
@@ -203,7 +636,72 @@
 
     <div id="map"></div>
 
+    <button type="button" id="recenter-btn" title="Re-center and resume follow">&#9678;</button>
+
+    <div id="feed-sheet">
+        <div id="feed-handle" title="Tap to resize"></div>
+        <div id="feed-toolbar">
+            <button type="button" class="feed-btn" id="btn-filter-all" aria-pressed="true">ALL</button>
+            <button type="button" class="feed-btn" id="btn-filter-ng911" aria-pressed="false">NG911</button>
+            <button type="button" class="feed-btn" id="btn-filter-parcel" aria-pressed="false">PARCEL</button>
+            <button type="button" class="feed-btn" id="btn-csv">CSV</button>
+            <button type="button" class="feed-btn" id="btn-geojson">GEOJSON</button>
+            <button type="button" class="feed-btn danger" id="btn-clear">CLEAR</button>
+            <span id="feed-count">0</span>
+        </div>
+        <div id="feed-list"><div id="feed-empty"></div></div>
+        <div id="feed-note">Log is stored on this device only and is never transmitted.</div>
+    </div>
+
+    <div id="toast"></div>
+
+    <div id="sim-panel"><div class="legend">
+        <h5>SIM DRIVE</h5>
+        <div style="color:#8a8a8a;font-size:10px;line-height:1.5">Tap the map to draw a route, then press play. Feeds the same onFix() the real GPS uses.</div>
+        <label>Speed: <span id="sim-mph-val">35</span> mph</label>
+        <input type="range" id="sim-mph" min="5" max="70" step="1" value="35">
+        <label>Time compression: <span id="sim-comp-val">1</span>&times;</label>
+        <input type="range" id="sim-comp" min="1" max="16" step="1" value="1">
+        <label>GPS jitter: <span id="sim-jitter-val">0</span> m</label>
+        <input type="range" id="sim-jitter" min="0" max="20" step="1" value="0">
+        <label>Dropped fixes: <span id="sim-drop-val">0</span>%</label>
+        <input type="range" id="sim-drop" min="0" max="60" step="5" value="0">
+        <div class="sim-btns">
+            <button type="button" class="feed-btn" id="sim-play">&#9654; PLAY</button>
+            <button type="button" class="feed-btn" id="sim-step">STEP</button>
+            <button type="button" class="feed-btn" id="sim-reset">RESET</button>
+        </div>
+        <div class="sim-btns">
+            <button type="button" class="feed-btn" id="sim-default">DEFAULT TRACK</button>
+            <button type="button" class="feed-btn" id="sim-seed">SEED HOUSES</button>
+        </div>
+        <label>Paste track (GeoJSON, or "lat,lng" per line)</label>
+        <textarea id="sim-track-in" placeholder="39.9772,-95.2974&#10;39.9772,-95.2800"></textarea>
+        <div class="sim-btns">
+            <button type="button" class="feed-btn" id="sim-load">LOAD TRACK</button>
+            <button type="button" class="feed-btn" id="sim-close">CLOSE</button>
+        </div>
+        <div id="sim-status" style="margin-top:8px;color:#ffcc33;font-size:10px"></div>
+    </div></div>
+
+    <div id="ack-modal"><div id="ack-box">
+        <h4>PASSENGER USE &mdash; PULL OVER TO INTERACT</h4>
+        <p style="margin:0 0 10px">Drive mode logs addresses on its own. It needs no taps while moving, and each
+        address can be announced with a chime so you do not have to look at the screen.</p>
+        <p style="margin:0 0 14px">Do not read, scroll, or tap this screen while driving.</p>
+        <div class="sim-btns">
+            <button type="button" class="feed-btn" id="ack-ok">UNDERSTOOD</button>
+            <button type="button" class="feed-btn" id="ack-cancel">CANCEL</button>
+        </div>
+    </div></div>
+
+    <div id="selftest"></div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Optional. If this fails to load, the `rotate` map option below is simply an
+         unknown option to vanilla Leaflet and the app stays north-up with the
+         HDG UP button hidden. Nothing else depends on it. -->
+    <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
     <script src="https://unpkg.com/esri-leaflet@3.0.10/dist/esri-leaflet.js"></script>
 
     <script>
@@ -255,15 +753,251 @@
             label: 'Address Points (NG911)',
             url:   'data/address_points.geojson',
             color: '#00ff00'
-        }
+        },
+
+        /* ---------------- Drive mode ---------------- */
+        drive: {
+            zoom: 17,
+            anchorRatio: 0.72,          // position sits this far down the VISIBLE map band (look-ahead)
+            anchorRatioLandscape: 0.62,
+            hideParcelsInDrive: true,   // parcel polygons at z17 while moving page continuously — the
+                                        // single biggest data/battery sink. The parcel SOURCE still
+                                        // feeds the engine through the far cheaper .nearby() query.
+            followResumeMs: 12000,      // idle auto-resume of follow-lock after you grab the map
+            minSpeedForHeading: 1.5,    // m/s. Below this coords.heading is noise.
+            minMoveForHeading: 8,       // m between fixes before a derived bearing is trustworthy
+            rotationPlugin: true,       // load-time gate for leaflet-rotate; ?norotate=1 also disables
+            chime: true,
+            vibrate: true,
+            wakeLock: true
+        },
+
+        /* ---------------- Address engine ----------------
+           Network cost is O(1) per ~400 m driven, NOT per GPS tick. See runPrefetch().
+           Tuned for rural 25–55 mph driving; the reasoning is in README.md. */
+        engine: {
+            prefetchRadius: 1200,     // m. 3x the move threshold, so corridors triple-overlap and a
+                                      // single failed request never leaves a hole in coverage.
+            prefetchMove:   400,      // m between prefetches. At 55 mph (24.6 m/s) that is one query
+                                      // per ~16 s per source; at 25 mph one per ~36 s.
+            prefetchLead:   300,      // m ahead along the heading — free forward coverage, same cost.
+            prefetchMinMs:  8000,     // floor against query storms from GPS jitter / mode toggling
+            passRadius:     60,       // m. Rural setbacks are 20–50 m; phone accuracy in a moving
+                                      // vehicle is 5–15 m; the next road on a quarter-mile grid is 402 m.
+            maxSegment:     2000,     // m. Above this we assume a backgrounded phone resumed elsewhere
+                                      // and do NOT log every house along the straight line between.
+            cacheCap:       4000,     // ~1 MB. Evicted farthest-from-fix first so the live corridor survives.
+            logMax:         2000,     // ~500 KB against a ~5 MB localStorage budget
+            sourceFailLimit: 3,       // consecutive failures before a source is suspended
+            sourceSuspendMs: 300000,
+            sourceTimeoutMs: 15000,   // a hung request must not pin the engine — see withTimeout()
+            trailMax:       150,      // recent fixes kept for late-arriving candidates (scanBacklog)
+            trailMaxAgeMs:  180000,   // ...and never older than 3 min, so a very late response
+                                      // cannot log houses from the far side of the county
+            parcelRadiusScale: 0.75,  // parcels query a smaller circle than local sources (payload size)
+            parcelLimit:    1500
+        },
+
+        sources: { ng911: true, parcelNe: true, parcelKs: true },
+
+        storage: {
+            // Set false if policy prefers the pass log NOT survive a reload.
+            enabled: true,
+            key: 'iowa-field-map.passlog.v1',
+            prefsKey: 'iowa-field-map.prefs.v1',
+            ackKey: 'iowa-field-map.ack.v1',
+            autosaveMs: 2000
+        },
+
+        sim: { mph: 35, tickMs: 1000, compression: 1, jitterM: 0, dropPct: 0 }
     };
 
     /* ======================================================================= */
 
+    const QS = new URLSearchParams(location.search);
+
+    // Cached DOM handles. Declared before anything that could reference them.
+    const els = {
+        body: document.body,
+        title: document.getElementById('system-title'),
+        btnMap: document.getElementById('btn-map'),
+        btnDrive: document.getElementById('btn-drive'),
+        btnHeadingUp: document.getElementById('btn-headingup'),
+        recenter: document.getElementById('recenter-btn'),
+        sheet: document.getElementById('feed-sheet'),
+        handle: document.getElementById('feed-handle'),
+        list: document.getElementById('feed-list'),
+        empty: document.getElementById('feed-empty'),
+        count: document.getElementById('feed-count'),
+        hudSpeed: document.getElementById('hud-speed'),
+        hudHeading: document.getElementById('hud-heading'),
+        hudAcc: document.getElementById('hud-acc'),
+        hudCount: document.getElementById('hud-count'),
+        hudSources: document.getElementById('hud-sources'),
+        toast: document.getElementById('toast'),
+        ack: document.getElementById('ack-modal')
+    };
+
+    /* =======================================================================
+       GEOMETRY UTILITIES
+       Pure functions, no Leaflet state. All covered by ?selftest=1.
+       ======================================================================= */
+    const DEG = Math.PI / 180;
+    const EARTH_R = 6371008.8;   // mean earth radius, metres
+
+    function toLL(p) {
+        if (p == null) return null;
+        if (Array.isArray(p)) return { lat: p[0], lng: p[1] };
+        return { lat: p.lat, lng: p.lng };
+    }
+
+    function haversine(a, b) {
+        a = toLL(a); b = toLL(b);
+        const dLat = (b.lat - a.lat) * DEG;
+        const dLon = (b.lng - a.lng) * DEG;
+        const la1 = a.lat * DEG, la2 = b.lat * DEG;
+        const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) ** 2;
+        return 2 * EARTH_R * Math.asin(Math.min(1, Math.sqrt(h)));
+    }
+
+    function bearing(a, b) {
+        a = toLL(a); b = toLL(b);
+        const la1 = a.lat * DEG, la2 = b.lat * DEG, dLon = (b.lng - a.lng) * DEG;
+        const y = Math.sin(dLon) * Math.cos(la2);
+        const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLon);
+        return (Math.atan2(y, x) / DEG + 360) % 360;
+    }
+
+    function destPoint(from, brgDeg, distM) {
+        const f = toLL(from);
+        const d = distM / EARTH_R, br = brgDeg * DEG;
+        const lat1 = f.lat * DEG, lon1 = f.lng * DEG;
+        const sinLat2 = Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(br);
+        const lat2 = Math.asin(Math.max(-1, Math.min(1, sinLat2)));
+        const lon2 = lon1 + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(lat1),
+                                       Math.cos(d) - Math.sin(lat1) * sinLat2);
+        return { lat: lat2 / DEG, lng: ((lon2 / DEG + 540) % 360) - 180 };
+    }
+
+    /* Distance from point p to the SEGMENT a→b, in metres.
+
+       This is the heart of not skipping houses. At 55 mph a 3-second fix gap covers
+       74 m, which is wider than passRadius — so testing only "is anything near my
+       current position?" silently misses every house that fell between two samples.
+       Measuring to the segment the vehicle actually travelled makes detection
+       independent of speed and sample rate. Local equirectangular projection is
+       exact enough over the <=2 km segments we ever test. */
+    function distToSegment(p, a, b) {
+        p = toLL(p); a = toLL(a); b = toLL(b);
+        const latRef = (a.lat + b.lat) / 2;
+        const kx = 111320 * Math.cos(latRef * DEG), ky = 110574;
+        const px = (p.lng - a.lng) * kx, py = (p.lat - a.lat) * ky;
+        const bx = (b.lng - a.lng) * kx, by = (b.lat - a.lat) * ky;
+        const len2 = bx * bx + by * by;
+        let t = len2 > 0 ? (px * bx + py * by) / len2 : 0;
+        t = Math.max(0, Math.min(1, t));       // clamp: never project past an endpoint
+        const dx = px - t * bx, dy = py - t * by;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // Shoelace centroid of a GeoJSON ring ([[lng,lat], ...]). Returns {lat,lng,area}.
+    function ringCentroid(ring) {
+        if (!ring || ring.length < 3) {
+            if (ring && ring.length) return { lng: ring[0][0], lat: ring[0][1], area: 0 };
+            return null;
+        }
+        let a2 = 0, cx = 0, cy = 0;
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+            const x0 = ring[j][0], y0 = ring[j][1], x1 = ring[i][0], y1 = ring[i][1];
+            const f = x0 * y1 - x1 * y0;
+            a2 += f; cx += (x0 + x1) * f; cy += (y0 + y1) * f;
+        }
+        const area = a2 / 2;
+        if (Math.abs(area) < 1e-14) {          // degenerate / zero-area ring -> bbox centre
+            let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+            for (const pt of ring) {
+                minx = Math.min(minx, pt[0]); maxx = Math.max(maxx, pt[0]);
+                miny = Math.min(miny, pt[1]); maxy = Math.max(maxy, pt[1]);
+            }
+            if (!isFinite(minx)) return null;
+            return { lng: (minx + maxx) / 2, lat: (miny + maxy) / 2, area: 0 };
+        }
+        return { lng: cx / (6 * area), lat: cy / (6 * area), area: Math.abs(area) };
+    }
+
+    /* GeoJSON geometry -> representative point.
+       NOTE GeoJSON coordinates are [lng, lat]. Inverting them here is the classic
+       bug in this kind of code, so ?selftest=1 asserts against it explicitly. */
+    function centroidOf(geom) {
+        if (!geom || !geom.coordinates) return null;
+        const c = geom.coordinates;
+        switch (geom.type) {
+            case 'Point':
+                return { lat: c[1], lng: c[0] };
+            case 'MultiPoint':
+                return c.length ? { lat: c[0][1], lng: c[0][0] } : null;
+            case 'LineString': {
+                if (!c.length) return null;
+                const m = c[(c.length / 2) | 0];
+                return { lat: m[1], lng: m[0] };
+            }
+            case 'MultiLineString':
+                return (c.length && c[0].length) ? { lat: c[0][0][1], lng: c[0][0][0] } : null;
+            case 'Polygon': {
+                if (!c.length) return null;
+                const r = ringCentroid(c[0]);
+                return r ? { lat: r.lat, lng: r.lng } : null;
+            }
+            case 'MultiPolygon': {
+                let best = null;
+                for (const poly of c) {
+                    if (!poly || !poly.length) continue;
+                    const r = ringCentroid(poly[0]);
+                    if (r && (!best || r.area > best.area)) best = r;
+                }
+                return best ? { lat: best.lat, lng: best.lng } : null;
+            }
+            default:
+                return null;
+        }
+    }
+
+    const CARDINALS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+    function cardinal(deg) { return CARDINALS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16]; }
+    function mps2mph(v) { return v * 2.2369362920544; }
+
+    // Ground metres per screen pixel at a given latitude/zoom (256 px tiles).
+    function metresPerPixel(lat, zoom) {
+        return 156543.03392804097 * Math.cos(lat * DEG) / Math.pow(2, zoom);
+    }
+
+    function esc(s) {
+        return String(s).replace(/[&<>"']/g, c =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    /* =======================================================================
+       MAP + EXISTING LAYERS  (MAP mode — behaviour unchanged)
+       ======================================================================= */
+
+    // ROTATION: `rotate` is an unknown option to vanilla Leaflet, so if the
+    // leaflet-rotate script above failed to load this is a silent no-op and the
+    // app stays north-up. ?norotate=1 is the kill switch if the plugin ever
+    // misbehaves against esri-leaflet.
+    const ROTATE_ENABLED = CONFIG.drive.rotationPlugin && !QS.has('norotate');
+
     const map = L.map('map', {
         zoomControl: false,
-        attributionControl: false
+        attributionControl: false,
+        rotate: ROTATE_ENABLED,
+        rotateControl: false,
+        bearing: 0,
+        touchRotate: false,
+        shiftKeyRotate: false
     }).setView(CONFIG.center, CONFIG.zoom);
+
+    // True only if the plugin actually loaded AND the map accepted rotation.
+    const ROTATION_AVAILABLE = !!(ROTATE_ENABLED && typeof map.setBearing === 'function' && map._rotate);
 
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 20,
@@ -295,9 +1029,15 @@
     const trust = addBoundary(CONFIG.trust, true);
     if (trust) { trust.addTo(map); overlays['Off-reservation trust land'] = trust; }
 
-    /* ---------------- Parcel popup builder (schema-tolerant) ---------------- */
-    // We can't hard-code field names across two states' schemas, so we match
-    // attributes by keyword and surface the useful ones; the rest are collapsible.
+    /* ---------------- Parcel popup builder (schema-tolerant) ----------------
+       We can't hard-code field names across two states' schemas, so we match
+       attributes by keyword and surface the useful ones; the rest are collapsible.
+       The keyword lists are hoisted to constants so the drive-mode address engine
+       extracts situs/owner with exactly the rules the popups use — one source of
+       truth for "what counts as the address". */
+    const SITUS_KEYS = ['situs', 'prop_addr', 'propaddr', 'site_addr', 'location', 'address', 'saddr'];
+    const OWNER_KEYS = ['owner', 'ownernam', 'taxpayer', 'deedhold'];
+
     function pick(props, keywords) {
         for (const key of Object.keys(props)) {
             const kl = key.toLowerCase();
@@ -318,17 +1058,17 @@
         if (!hit) return '';
         let val = fmt(hit.value);
         if (isMoney && typeof hit.value === 'number') val = '$' + hit.value.toLocaleString();
-        return `<tr><td class="k">${label}</td><td class="v">${val}</td></tr>`;
+        return `<tr><td class="k">${esc(label)}</td><td class="v">${esc(val)}</td></tr>`;
     }
     function buildParcelPopup(props, stateLabel) {
-        const owner  = pick(props, ['owner', 'ownernam', 'taxpayer', 'deedhold']);
-        const situs  = pick(props, ['situs', 'prop_addr', 'propaddr', 'site_addr', 'location', 'address', 'saddr']);
+        const owner  = pick(props, OWNER_KEYS);
+        const situs  = pick(props, SITUS_KEYS);
         const pid    = pick(props, ['parcel', 'pin', 'pid', 'gisid', 'apn']);
         const acres  = pick(props, ['acre', 'gis_acre', 'deed_acre']);
         const value  = pick(props, ['total_val', 'totalval', 'assess', 'market', 'apprais', 'value']);
         const use    = pick(props, ['landuse', 'land_use', 'use_desc', 'class', 'property_c']);
 
-        let html = `<div class="parcel-popup"><h4>PARCEL &mdash; ${stateLabel}</h4><table>`;
+        let html = `<div class="parcel-popup"><h4>PARCEL &mdash; ${esc(stateLabel)}</h4><table>`;
         html += row('Owner', owner);
         html += row('Situs', situs);
         html += row('Parcel ID', pid);
@@ -342,12 +1082,29 @@
         const rest = Object.keys(props).filter(k => !shown.includes(k) && props[k] !== null && String(props[k]).trim() !== '');
         if (rest.length) {
             html += '<details><summary>All attributes</summary><table>';
-            rest.forEach(k => { html += `<tr><td class="k">${k}</td><td class="v">${fmt(props[k])}</td></tr>`; });
+            rest.forEach(k => { html += `<tr><td class="k">${esc(k)}</td><td class="v">${esc(fmt(props[k]))}</td></tr>`; });
             html += '</table></details>';
         }
         html += '<div class="src">Public county assessor record &middot; verify trust/fee status against BIA LTRO</div>';
         html += '</div>';
         return html;
+    }
+
+    /* Address / owner from an arbitrary properties bag. Extracted from the
+       address-point loader so the NG911 map layer and the drive engine always
+       agree on what "the address" is for a given record. */
+    function addrFromProps(p) {
+        if (!p) return null;
+        const direct = p.address || p.full_address || p.label ||
+            [p.number, p.street].filter(Boolean).join(' ');
+        if (direct && String(direct).trim()) return String(direct).trim();
+        const hit = pick(p, SITUS_KEYS);
+        return hit ? String(hit.value).trim() : null;
+    }
+    function ownerFromProps(p) {
+        if (!p) return null;
+        const hit = pick(p, OWNER_KEYS);
+        return hit ? String(hit.value).trim() : null;
     }
 
     /* ---------------- Parcel layers ---------------- */
@@ -378,7 +1135,12 @@
         if (CONFIG.parcels.ks.on) ksParcels.addTo(map);
     }
 
-    /* ---------------- Address points (optional GeoJSON) ---------------- */
+    /* ---------------- Address points (optional GeoJSON) ----------------
+       Also retained flat in ng911Features so the drive engine can match against
+       them with zero extra network. An absent file is a normal state, not an error. */
+    let ng911Features = [];
+    let ng911Loaded = false;
+
     fetch(CONFIG.addressPoints.url, { cache: 'no-store' })
         .then(r => { if (!r.ok) throw new Error('no address file'); return r.json(); })
         .then(geo => {
@@ -389,14 +1151,13 @@
                 }),
                 onEachFeature: (f, layer) => {
                     const p = f.properties || {};
-                    const addr = p.address || p.full_address || p.label ||
-                        [p.number, p.street].filter(Boolean).join(' ');
+                    const addr = addrFromProps(p);
                     let html = '<div class="parcel-popup"><h4>ADDRESS POINT</h4><table>';
-                    if (addr) html += `<tr><td class="k">Address</td><td class="v">${addr}</td></tr>`;
+                    if (addr) html += `<tr><td class="k">Address</td><td class="v">${esc(addr)}</td></tr>`;
                     Object.keys(p).forEach(k => {
                         if (['address','full_address','label','number','street'].includes(k)) return;
                         if (p[k] === null || String(p[k]).trim() === '') return;
-                        html += `<tr><td class="k">${k}</td><td class="v">${p[k]}</td></tr>`;
+                        html += `<tr><td class="k">${esc(k)}</td><td class="v">${esc(p[k])}</td></tr>`;
                     });
                     html += '</table></div>';
                     layer.bindPopup(html);
@@ -404,8 +1165,27 @@
             });
             overlays[CONFIG.addressPoints.label] = pts;
             pts.addTo(map);
+
+            (geo.features || []).forEach((f, i) => {
+                const pt = centroidOf(f.geometry);
+                const addr = addrFromProps(f.properties);
+                if (!pt || !addr) return;
+                ng911Features.push({
+                    id: 'ng911:' + (f.id != null ? f.id : ((f.properties && f.properties.source_id) || i)),
+                    lat: pt.lat, lng: pt.lng,
+                    address: addr,
+                    owner: ownerFromProps(f.properties),
+                    props: f.properties || {}
+                });
+            });
+            ng911Loaded = true;
+            setSourceState('ng911', ng911Features.length ? 'ok' : 'empty', ng911Features.length);
         })
-        .catch(() => console.info('No address_points.geojson loaded (optional).'));
+        .catch(() => {
+            ng911Loaded = true;
+            setSourceState('ng911', 'off', 0, 'no file');
+            console.info('No address_points.geojson loaded (optional).');
+        });
 
     /* ---------------- Layer control ---------------- */
     L.control.layers(null, overlays, { position: 'topright', collapsed: false }).addTo(map);
@@ -416,14 +1196,14 @@
     const LocateControl = L.Control.extend({
         options: { position: 'bottomright' },
         onAdd: function () {
-            const bar = L.DomUtil.create('div', 'leaflet-bar');
+            const bar = L.DomUtil.create('div', 'leaflet-bar locate-bar');
             const btn = L.DomUtil.create('a', 'mdt-btn', bar);
             btn.href = '#';
             btn.title = 'Center on my GPS location';
             btn.innerHTML = '&#9678;';   // target glyph
             L.DomEvent.on(btn, 'click', L.DomEvent.stop).on(btn, 'click', () => {
                 if (lastFix) map.setView(lastFix, Math.max(map.getZoom(), 16));
-                else startGeolocation(true);
+                else startGeolocation(true, true);   // explicit gesture — retry a failed watch
             });
             return bar;
         }
@@ -454,8 +1234,12 @@
             (map.getZoom() < CONFIG.parcelMinZoom
                 ? `<div class="hint">Zoom to ${CONFIG.parcelMinZoom}+ to load parcels</div>` : '');
     }
-    map.on('click', e => showCoords(e.latlng, 'TAP'));
-    map.on('mousemove', e => { if (map.getZoom() >= CONFIG.parcelMinZoom) showCoords(e.latlng, 'CUR'); });
+    // Named (not inline) so drive mode can detach these and exit can re-attach
+    // the very same handlers. Anonymous handlers cannot be removed.
+    function onMapClick(e) { showCoords(e.latlng, 'TAP'); }
+    function onMapMouseMove(e) { if (map.getZoom() >= CONFIG.parcelMinZoom) showCoords(e.latlng, 'CUR'); }
+    map.on('click', onMapClick);
+    map.on('mousemove', onMapMouseMove);
 
     /* ---------------- Parcel-status indicator vs. zoom ---------------- */
     const parcelStatus = document.getElementById('parcel-status');
@@ -471,43 +1255,1417 @@
     map.on('zoomend', updateParcelStatus);
     updateParcelStatus();
 
-    /* ---------------- Live GPS ---------------- */
+    /* =======================================================================
+       LIVE GPS
+       watchPosition and the simulator both funnel into onFix(). That single
+       choke point is what makes the whole drive pipeline testable at a desk:
+       nothing downstream knows or cares which one produced the fix.
+       ======================================================================= */
     const gpsStatus = document.getElementById('gps-status');
     let gpsMarker = null, gpsCircle = null, lastFix = null, watchId = null;
+    let prevFix = null, curFix = null, lastHeading = null;
 
-    function startGeolocation(recenter) {
+    let gpsFailed = false;
+
+    /* `retry` is true only for an explicit user gesture (the locate button). A watch
+       that has already reported a hard failure is never silently restarted, and — more
+       importantly — the status chip is never reset to SEARCHING for a watch that will
+       not call back again. Showing a permanent "searching" for a denied permission is
+       worse than showing nothing: it looks like the fix is one moment away. */
+    function startGeolocation(recenter, retry) {
         if (!('geolocation' in navigator)) {
             gpsStatus.textContent = 'GPS: N/A';
             return;
         }
+        if (!window.isSecureContext) {
+            // Geolocation is https-only. Say so instead of hanging on SEARCHING forever.
+            gpsStatus.textContent = 'GPS: NEEDS HTTPS';
+            gpsStatus.className = 'status-indicator';
+            return;
+        }
+
+        if (watchId !== null) {
+            if (retry && gpsFailed) {
+                try { navigator.geolocation.clearWatch(watchId); } catch (e) {}
+                watchId = null;
+                gpsFailed = false;      // user asked again — the browser may re-prompt
+            } else {
+                if (recenter && lastFix) map.setView(lastFix, Math.max(map.getZoom(), 16));
+                return;
+            }
+        }
+
         gpsStatus.textContent = 'GPS: SEARCHING';
         gpsStatus.className = 'status-indicator searching';
-        if (watchId === null) {
+        {
+            let wantRecenter = recenter;
             watchId = navigator.geolocation.watchPosition(pos => {
-                const ll = [pos.coords.latitude, pos.coords.longitude];
-                lastFix = ll;
-                const acc = pos.coords.accuracy || 0;
-                gpsStatus.textContent = `GPS: LOCKED ±${Math.round(acc)}m`;
-                gpsStatus.className = 'status-indicator locked';
-                if (!gpsMarker) {
-                    gpsMarker = L.circleMarker(ll, { radius: 6, color: '#33ff77', weight: 2, fillColor: '#33ff77', fillOpacity: 1 }).addTo(map);
-                    gpsCircle = L.circle(ll, { radius: acc, color: '#33ff77', weight: 1, fillOpacity: 0.08 }).addTo(map);
-                } else {
-                    gpsMarker.setLatLng(ll);
-                    gpsCircle.setLatLng(ll).setRadius(acc);
-                }
-                if (recenter) { map.setView(ll, Math.max(map.getZoom(), 16)); recenter = false; }
+                gpsFailed = false;
+                const c = pos.coords;
+                onFix({
+                    latlng: L.latLng(c.latitude, c.longitude),
+                    accuracy: c.accuracy || 0,
+                    heading: Number.isFinite(c.heading) ? c.heading : null,
+                    speed: Number.isFinite(c.speed) ? c.speed : null,
+                    t: pos.timestamp || Date.now(),
+                    simulated: false
+                });
+                if (wantRecenter) { map.setView(lastFix, Math.max(map.getZoom(), 16)); wantRecenter = false; }
             }, err => {
-                gpsStatus.textContent = 'GPS: DENIED';
+                gpsFailed = true;
+                gpsStatus.textContent = (err && err.code === 1) ? 'GPS: DENIED' : 'GPS: NO FIX';
                 gpsStatus.className = 'status-indicator';
+                renderEmptyState();
                 console.warn('Geolocation error:', err && err.message);
             }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
-        } else if (recenter && lastFix) {
-            map.setView(lastFix, Math.max(map.getZoom(), 16));
         }
     }
-    // Kick off GPS on load; browser will prompt for permission.
-    startGeolocation(false);
+
+    /* Resolve a trustworthy heading, or null.
+       coords.heading is null on most desktops and pure noise when stationary, so
+       we tier the sources and never draw an arrow we cannot justify. */
+    function resolveHeading(f, prev) {
+        if (Number.isFinite(f.heading) && f.speed != null && f.speed > CONFIG.drive.minSpeedForHeading) {
+            return f.heading;
+        }
+        if (prev && haversine(prev.latlng, f.latlng) > CONFIG.drive.minMoveForHeading) {
+            return bearing(prev.latlng, f.latlng);
+        }
+        return lastHeading;   // may still be null on the first fixes
+    }
+
+    function onFix(f) {
+        prevFix = curFix;
+        curFix = f;
+        lastFix = f.latlng;
+
+        // Derive speed when the platform doesn't supply one (common on desktop).
+        if (f.speed == null && prevFix && f.t > prevFix.t) {
+            const dt = (f.t - prevFix.t) / 1000;
+            if (dt > 0.2) f.speed = haversine(prevFix.latlng, f.latlng) / dt;
+        }
+
+        const hdg = resolveHeading(f, prevFix);
+        f.headingKnown = hdg != null;
+        f.headingDeg = hdg;
+        if (hdg != null) lastHeading = hdg;
+
+        updateGpsUi(f);
+
+        // The engine runs in BOTH modes and regardless of follow-lock. Tying address
+        // logging to the camera would silently stop the feed the moment you pan.
+        pushTrail(f);
+        maybePrefetch(f);
+        const hits = scanPass(prevFix ? prevFix.latlng : null, f.latlng);
+        for (const h of hits) logPass(h.c, f, h.d);
+
+        if (MODE === 'drive') {
+            applyDriveCamera(f);
+            updateArrow(f);
+            updateHud(f);
+        }
+    }
+
+    function updateGpsUi(f) {
+        gpsStatus.textContent = `GPS: ${f.simulated ? 'SIM' : 'LOCKED'} ±${Math.round(f.accuracy)}m`;
+        gpsStatus.className = 'status-indicator locked';
+        if (!gpsMarker) {
+            gpsMarker = L.circleMarker(f.latlng, { radius: 6, color: '#33ff77', weight: 2, fillColor: '#33ff77', fillOpacity: 1 }).addTo(map);
+            gpsCircle = L.circle(f.latlng, { radius: f.accuracy, color: '#33ff77', weight: 1, fillOpacity: 0.08 }).addTo(map);
+            if (MODE === 'drive') {   // entered drive before the first fix arrived
+                gpsMarker.setStyle({ opacity: 0, fillOpacity: 0 });
+                gpsCircle.setStyle({ opacity: 0, fillOpacity: 0 });
+            }
+        } else {
+            gpsMarker.setLatLng(f.latlng);
+            gpsCircle.setLatLng(f.latlng).setRadius(f.accuracy);
+        }
+    }
+
+    /* =======================================================================
+       ADDRESS ENGINE — corridor prefetch + local match
+
+       Per-GPS-tick geocoding is not viable: free geocoders cap around 1 req/s and
+       rural cell coverage drops out entirely. So we pull a whole CORRIDOR of
+       candidate addresses in one request per ~400 m driven, cache it, and make
+       every tick pure local geometry. Network cost is O(1) per 400 m and the feed
+       keeps working after signal is lost.
+       ======================================================================= */
+    const addrCache = new Map();   // id -> {id, lat, lng, address, owner, source, props}
+    const logged    = new Set();   // ids already in the feed (rehydrated from storage)
+    let   passLog   = [];          // newest-first
+    let   prefetchAnchor = null;   // most recent anchor, for the empty-state message
+    let   lastPrefetchAt = 0;
+    /* Recent fixes, newest last. Candidates that arrive AFTER you have already driven
+       past them are matched against this trail — see scanBacklog(). */
+    const trail = [];
+    const sourceState = {};        // key -> {status, n, msg, fails, suspendUntil}
+    const queryModeByUrl = {};     // url -> 'nearby' | 'bbox', remembered after the first success
+
+    function normalizeAddress(s) {
+        return String(s || '')
+            .toUpperCase()
+            .replace(/[.,#]/g, ' ')
+            .replace(/\bROAD\b/g, 'RD').replace(/\bSTREET\b/g, 'ST')
+            .replace(/\bAVENUE\b/g, 'AVE').replace(/\bDRIVE\b/g, 'DR')
+            .replace(/\bTRAIL\b/g, 'TRL').replace(/\bHIGHWAY\b/g, 'HWY')
+            .replace(/\bNORTH\b/g, 'N').replace(/\bSOUTH\b/g, 'S')
+            .replace(/\bEAST\b/g, 'E').replace(/\bWEST\b/g, 'W')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+    // ~11 m grid + normalized address: catches the same house arriving from two sources.
+    function addrKeyOf(c) {
+        return normalizeAddress(c.address) + '@' + c.lat.toFixed(4) + ',' + c.lng.toFixed(4);
+    }
+
+    function setSourceState(key, status, n, msg) {
+        const st = sourceState[key] || (sourceState[key] = { fails: 0, suspendUntil: 0 });
+        st.status = status;
+        if (n != null) st.n = n;
+        st.msg = msg || '';
+        renderSourceBadges();
+    }
+
+    function mergeCandidates(list) {
+        const added = [];
+        let dup = 0;
+        const seenKeys = new Set();
+        for (const c of addrCache.values()) seenKeys.add(addrKeyOf(c));
+        for (const c of list) {
+            if (addrCache.has(c.id)) { dup++; continue; }
+            const k = addrKeyOf(c);
+            if (seenKeys.has(k)) { dup++; continue; }   // same house, different source
+            seenKeys.add(k);
+            addrCache.set(c.id, c);
+            added.push(c);
+        }
+        return { added, dup };
+    }
+
+    /* Evict farthest-from-current-position first, NOT least-recently-used: the
+       corridor you are driving into is what matters, and LRU would drop the road
+       ahead in favour of the road behind. */
+    function evictCache(fromLatLng) {
+        if (addrCache.size <= CONFIG.engine.cacheCap) return;
+        const arr = [...addrCache.values()]
+            .map(c => ({ c, d: haversine(fromLatLng, c) }))
+            .sort((a, b) => a.d - b.d);
+        for (let i = CONFIG.engine.cacheCap; i < arr.length; i++) addrCache.delete(arr[i].c.id);
+    }
+
+    /* Prefetch state is PER SOURCE, not global. A county service over rural LTE can
+       take seconds; the local NG911 file resolves instantly. A shared in-flight gate
+       would let the slow one throttle the fast one, so the feed would go quiet for
+       houses whose addresses are already sitting on the device. Each source keeps its
+       own anchor, its own timer and its own in-flight flag, and falls behind alone. */
+    function maybePrefetch(f) {
+        const now = Date.now();
+
+        // Bias the query circle forward along the heading — same cost, more road ahead.
+        let center = f.latlng;
+        if (f.headingKnown && f.speed != null && f.speed > 5) {
+            center = destPoint(f.latlng, f.headingDeg, CONFIG.engine.prefetchLead);
+        }
+
+        for (const s of SOURCES) {
+            if (!s.enabled() || isSuspended(s.key)) continue;
+            const st = sourceState[s.key];
+            if (st.inFlight) continue;
+            if (now - (st.lastAt || 0) < CONFIG.engine.prefetchMinMs) continue;
+            if (st.anchor && haversine(st.anchor, f.latlng) < CONFIG.engine.prefetchMove) continue;
+            runSourcePrefetch(s, center, f.latlng);
+        }
+    }
+
+    /* A source that never settles must never pin the engine. esri-leaflet's request
+       has no timeout of its own, so a service that accepts the connection and then
+       stalls would otherwise leave that source's inFlight flag true forever, so it
+       would never prefetch again for the rest of the shift. */
+    function withTimeout(promise, ms, key) {
+        let timer;
+        return Promise.race([
+            promise.finally(() => clearTimeout(timer)),
+            new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(key + ' timed out after ' + (ms / 1000) + 's')), ms); })
+        ]);
+    }
+
+    async function runSourcePrefetch(s, center, anchor) {
+        const st = sourceState[s.key];
+        st.inFlight = true;
+        st.lastAt = Date.now();
+        // Anchor is set optimistically, before the request resolves: a source that
+        // keeps failing must not re-fire on every single tick.
+        st.anchor = anchor;
+        lastPrefetchAt = st.lastAt;
+        prefetchAnchor = anchor;
+        if (st.status !== 'off') setSourceState(s.key, 'loading');
+
+        try {
+            const list = await withTimeout(
+                Promise.resolve(s.fetch(center, CONFIG.engine.prefetchRadius)),
+                CONFIG.engine.sourceTimeoutMs, s.key);
+            noteSuccess(s.key);
+            // Sources report their own badge state — they know about blank URLs,
+            // truncated results and situs shortfalls. We only merge what came back.
+            const { added } = mergeCandidates(list || []);
+            if (added.length) {
+                console.debug(`[engine] ${s.key}: +${added.length} candidates`);
+                // Catch anything this response contains that we already drove past
+                // while it was in flight.
+                scanBacklog(added);
+                evictCache(anchor);
+            }
+        } catch (err) {
+            noteFailure(s.key, err);
+        } finally {
+            st.inFlight = false;
+            renderEmptyState();
+        }
+    }
+
+    function isSuspended(key) {
+        const st = sourceState[key];
+        return !!(st && st.suspendUntil && Date.now() < st.suspendUntil);
+    }
+    function noteSuccess(key) {
+        const st = sourceState[key] || (sourceState[key] = {});
+        st.fails = 0; st.suspendUntil = 0;
+    }
+    function noteFailure(key, err) {
+        const st = sourceState[key] || (sourceState[key] = { fails: 0 });
+        st.fails = (st.fails || 0) + 1;
+        const msg = String((err && (err.message || err)) || 'error');
+        console.warn(`[engine] source ${key} failed:`, msg);
+        // A CORS rejection looks identical to a network error from JS; name it in the
+        // badge tooltip so nobody spends an afternoon on it. Fix is a same-origin proxy.
+        const hint = /NetworkError|Failed to fetch|CORS/i.test(msg) ? 'network/CORS — ' : '';
+        if (st.fails >= CONFIG.engine.sourceFailLimit) {
+            st.suspendUntil = Date.now() + CONFIG.engine.sourceSuspendMs;
+            setSourceState(key, 'error', undefined, hint + 'suspended 5 min');
+            toast(`${key.toUpperCase()} unavailable — suspended 5 min. Other sources keep running.`);
+        } else {
+            setSourceState(key, 'error', undefined, hint + msg.slice(0, 60));
+        }
+    }
+
+    /* Pure local geometry, every tick. Distance is measured to the SEGMENT the
+       vehicle just travelled — see distToSegment() for why that matters.
+       No spatial index on purpose: a linear scan of 4000 entries at 1 Hz is well
+       under a millisecond, and a quadtree here would be unjustified complexity. */
+    function scanPass(prev, cur) {
+        const hits = [];
+        if (!cur) return hits;
+        const teleport = !prev || haversine(prev, cur) > CONFIG.engine.maxSegment;
+        for (const c of addrCache.values()) {
+            if (logged.has(c.id)) continue;
+            const d = teleport ? haversine(cur, c) : distToSegment(c, prev, cur);
+            if (d <= CONFIG.engine.passRadius) hits.push({ c, d });
+        }
+        hits.sort((a, b) => a.d - b.d);
+        return hits;
+    }
+
+    /* Late-arriving candidates.
+
+       A prefetch is a network round trip. Over rural LTE the response can land
+       several seconds — and several hundred metres — after it was requested, by
+       which time you have already driven past some of the houses it contains.
+       scanPass() only ever looks at the segment between the last two fixes, so
+       without this those addresses would be dropped silently: the worst kind of
+       failure, because the feed looks like it is working.
+
+       So newly merged candidates are also tested against the recent trail, and
+       logged against the fix where the pass ACTUALLY happened — which keeps the
+       timestamp and the side-of-road honest rather than stamping them "now". */
+    function scanBacklog(candidates) {
+        if (!trail.length || !candidates.length) return;
+        for (const c of candidates) {
+            if (logged.has(c.id)) continue;
+            let best = Infinity, bestFix = null;
+
+            // Point distance to every remembered fix. This covers the two cases a
+            // segment sweep alone cannot: the very first fix (no segment exists yet,
+            // and the first prefetch of a shift always resolves in exactly that
+            // state), and the endpoints either side of a teleport gap.
+            for (const pt of trail) {
+                const d = haversine(pt.latlng, c);
+                if (d < best) { best = d; bestFix = pt; }
+            }
+            // Segment distance — what catches houses passed BETWEEN two fixes.
+            for (let i = 1; i < trail.length; i++) {
+                const a = trail[i - 1], b = trail[i];
+                if (haversine(a.latlng, b.latlng) > CONFIG.engine.maxSegment) continue;  // teleport gap
+                const d = distToSegment(c, a.latlng, b.latlng);
+                if (d < best) { best = d; bestFix = b; }
+            }
+
+            if (best <= CONFIG.engine.passRadius && bestFix) logPass(c, bestFix, best);
+        }
+    }
+
+    function pushTrail(f) {
+        trail.push({ latlng: f.latlng, t: f.t, headingKnown: f.headingKnown, headingDeg: f.headingDeg });
+        // Bounded so a very late response can't log houses from an hour ago.
+        if (trail.length > CONFIG.engine.trailMax) trail.splice(0, trail.length - CONFIG.engine.trailMax);
+        const cutoff = Date.now() - CONFIG.engine.trailMaxAgeMs;
+        while (trail.length > 2 && trail[0].t < cutoff) trail.shift();
+    }
+
+    function logPass(c, f, distM) {
+        if (logged.has(c.id)) return;
+        logged.add(c.id);
+
+        let side = null;
+        if (f.headingKnown) {
+            const rel = ((bearing(f.latlng, c) - f.headingDeg) % 360 + 360) % 360;
+            side = (rel > 0 && rel < 180) ? 'RIGHT' : 'LEFT';
+        }
+        const entry = {
+            id: c.id,
+            address: c.address,
+            owner: c.owner || null,
+            lat: c.lat, lng: c.lng,
+            source: c.source,
+            t: f.t || Date.now(),
+            dist: Math.round(distM),
+            side,
+            heading: f.headingKnown ? Math.round(f.headingDeg) : null,
+            props: c.props || null
+        };
+        passLog.unshift(entry);
+        if (passLog.length > CONFIG.engine.logMax) passLog.length = CONFIG.engine.logMax;
+
+        prependRow(entry);
+        updateFeedCount();
+        savePassLog();
+        notifyPass(entry);
+    }
+
+    /* =======================================================================
+       SOURCES
+       Uniform contract: async (centerLatLng, radiusM) -> Candidate[].
+       Resolve [] for "not configured" (a config state, never an error);
+       reject only for genuine failures. Each source owns its own badge state.
+       ======================================================================= */
+
+    function fetchNG911(center, radius) {
+        if (!ng911Loaded) return Promise.resolve([]);
+        if (!ng911Features.length) { setSourceState('ng911', 'off', 0, 'no file'); return Promise.resolve([]); }
+        const out = [];
+        for (const p of ng911Features) {
+            if (haversine(center, p) <= radius) {
+                out.push({ id: p.id, lat: p.lat, lng: p.lng, address: p.address, owner: p.owner, source: 'ng911', props: p.props });
+            }
+        }
+        setSourceState('ng911', out.length ? 'ok' : 'empty', out.length,
+            `${ng911Features.length} loaded, ${out.length} in corridor`);
+        return Promise.resolve(out);
+    }
+
+    /* One ArcGIS query. Tries .nearby() (geometry + distance + units) and falls back
+       to a bbox .within() for services that reject the distance parameter,
+       remembering which shape worked per URL so discovery is paid for only once. */
+    function queryNear(url, center, radius) {
+        return new Promise((resolve, reject) => {
+            const mode = queryModeByUrl[url] || 'nearby';
+            const q = L.esri.query({ url })
+                .precision(5)                       // trims coordinate digits — real payload savings
+                .limit(CONFIG.engine.parcelLimit);
+
+            if (mode === 'nearby') {
+                q.nearby(L.latLng(center.lat, center.lng), radius);
+            } else {
+                const dLat = radius / 110574;
+                const dLng = radius / (111320 * Math.max(0.05, Math.cos(center.lat * DEG)));
+                q.within(L.latLngBounds(
+                    [center.lat - dLat, center.lng - dLng],
+                    [center.lat + dLat, center.lng + dLng]
+                ));
+            }
+
+            q.run((error, fc, raw) => {
+                if (error) {
+                    if (mode === 'nearby' && !queryModeByUrl[url]) {
+                        queryModeByUrl[url] = 'bbox';       // try the other geometry shape next
+                        return queryNear(url, center, radius).then(resolve, reject);
+                    }
+                    return reject(error);
+                }
+                queryModeByUrl[url] = mode;
+                resolve({ fc, exceeded: !!(raw && raw.exceededTransferLimit) });
+            });
+        });
+    }
+
+    function makeParcelSource(stateKey) {
+        const key = 'parcel-' + stateKey;
+        return async function (center, radius) {
+            const cfg = CONFIG.parcels[stateKey];
+            // A blank URL is a configuration state, not a failure. Never red.
+            if (!cfg.url) { setSourceState(key, 'off', 0, 'URL not set in CONFIG.parcels'); return []; }
+
+            let r = radius * CONFIG.engine.parcelRadiusScale;
+            let res = await queryNear(cfg.url, center, r);
+
+            // Truncated result: retry once smaller rather than silently under-reporting.
+            let truncated = false;
+            if (res.exceeded) {
+                truncated = true;
+                try { res = await queryNear(cfg.url, center, r * 0.6); }
+                catch (e) { /* keep the first (truncated) result rather than losing everything */ }
+            }
+
+            const feats = (res.fc && res.fc.features) || [];
+            const out = [];
+            let noSitus = 0;
+            for (const f of feats) {
+                const props = f.properties || {};
+                const address = addrFromProps(props);
+                if (!address) { noSitus++; continue; }
+                const pt = centroidOf(f.geometry);
+                if (!pt) continue;
+                const oid = props.OBJECTID != null ? props.OBJECTID
+                          : (props.objectid != null ? props.objectid
+                          : (props.FID != null ? props.FID : f.id));
+                out.push({
+                    id: key + ':' + (oid != null ? oid : (pt.lat.toFixed(6) + ',' + pt.lng.toFixed(6))),
+                    lat: pt.lat, lng: pt.lng,
+                    address,
+                    owner: ownerFromProps(props),
+                    source: key,
+                    props
+                });
+            }
+            // Report the shortfall rather than showing an empty feed behind a green badge.
+            const detail = `${feats.length} parcels / ${out.length} with situs` + (noSitus ? ` (${noSitus} without)` : '');
+            if (truncated) setSourceState(key, 'partial', out.length, 'result truncated — ' + detail);
+            else setSourceState(key, out.length ? 'ok' : 'empty', out.length, detail);
+            return out;
+        };
+    }
+
+    const SOURCES = [
+        { key: 'ng911',     label: 'NG911',     enabled: () => CONFIG.sources.ng911,    fetch: fetchNG911 },
+        { key: 'parcel-ne', label: 'NE PARCEL', enabled: () => CONFIG.sources.parcelNe, fetch: makeParcelSource('ne') },
+        { key: 'parcel-ks', label: 'KS PARCEL', enabled: () => CONFIG.sources.parcelKs, fetch: makeParcelSource('ks') }
+        // An OSM/Overpass source or an on-demand reverse geocoder drops in here with
+        // the same (center, radius) -> Candidate[] contract; the engine needs no changes.
+    ];
+
+    SOURCES.forEach(s => {
+        sourceState[s.key] = { status: 'idle', n: 0, fails: 0, suspendUntil: 0,
+                               inFlight: false, lastAt: 0, anchor: null };
+    });
+    if (!CONFIG.parcels.ks.url) { sourceState['parcel-ks'].status = 'off'; sourceState['parcel-ks'].msg = 'URL not set in CONFIG.parcels'; }
+
+    /* =======================================================================
+       DRIVE MODE
+       ======================================================================= */
+    let MODE = 'map';
+    let followLock = true;
+    let headingUp = false;
+    let programmaticMove = false;
+    let followTimer = null;
+    let wakeLock = null;
+    let headingMarker = null;
+    const driveUndo = [];
+
+    /* "Keep the current map" is a structural guarantee, not a checklist: every
+       mutation enterDrive() makes pushes its own inverse, and exitDrive() pops
+       them in reverse order. Adding a new drive-mode change without an undo is
+       impossible to forget because mutate() takes both halves. */
+    function mutate(doFn, undoFn) { doFn(); driveUndo.push(undoFn); }
+
+    // Flags app-driven camera moves so the camera never breaks its own follow-lock.
+    function programmatic(fn) {
+        programmaticMove = true;
+        try { fn(); } finally {
+            map.once('moveend', () => { programmaticMove = false; });
+            setTimeout(() => { programmaticMove = false; }, 1500);   // belt and braces
+        }
+    }
+
+    const ARROW_SVG =
+        '<div class="drive-arrow-rot"><svg width="44" height="44" viewBox="0 0 44 44">' +
+        '<circle cx="22" cy="22" r="20" fill="rgba(0,0,0,0.45)" stroke="#00bb33" stroke-width="1"/>' +
+        '<path d="M22 6 L33 34 L22 27 L11 34 Z" fill="#33ff77" stroke="#00aa22" stroke-width="1"/>' +
+        '</svg></div>';
+    const DOT_SVG =
+        '<div class="drive-arrow-rot"><svg width="44" height="44" viewBox="0 0 44 44">' +
+        '<circle cx="22" cy="22" r="20" fill="rgba(0,0,0,0.45)" stroke="#00bb33" stroke-width="1"/>' +
+        '<circle cx="22" cy="22" r="7" fill="#33ff77"/>' +
+        '</svg></div>';
+
+    function sheetHeightPx() {
+        if (MODE !== 'drive') return 0;
+        const r = els.sheet.getBoundingClientRect();
+        // In the landscape right-rail layout the sheet doesn't eat vertical space.
+        if (r.width < window.innerWidth * 0.9) return 0;
+        return r.height;
+    }
+
+    /* Where the map should be centred so the vehicle sits low on screen (look-ahead).
+       One formula covers both orientations: "down the screen" is south when
+       north-up, and *behind you* when heading-up, so we simply walk back along
+       that bearing. This avoids having to rotate a pixel-offset vector by the map
+       bearing, which is where this kind of code usually goes wrong. */
+    function driveCenter(f, zoom) {
+        const z = (zoom == null) ? map.getZoom() : zoom;
+        const H = map.getSize().y;
+        const visible = Math.max(120, H - sheetHeightPx());
+        const ratio = (window.innerWidth > window.innerHeight && window.innerWidth >= 720)
+            ? CONFIG.drive.anchorRatioLandscape : CONFIG.drive.anchorRatio;
+        const anchorPx = ratio * visible;
+        const backPx = anchorPx - H / 2;
+        if (Math.abs(backPx) < 1) return f.latlng;
+        const backM = backPx * metresPerPixel(f.latlng.lat, z);
+        const down = (headingUp && ROTATION_AVAILABLE && f.headingKnown) ? (f.headingDeg + 180) : 180;
+        const p = destPoint(f.latlng, down, backM);
+        return L.latLng(p.lat, p.lng);
+    }
+
+    function applyDriveCamera(f) {
+        if (MODE !== 'drive' || !followLock) return;
+
+        if (headingUp && ROTATION_AVAILABLE && f.headingKnown) {
+            // leaflet-rotate's own compass handler uses setBearing(-heading); this
+            // puts the direction of travel at the top of the screen.
+            try { map.setBearing(-f.headingDeg); } catch (e) { /* never let rotation break the camera */ }
+        }
+
+        const target = driveCenter(f, CONFIG.drive.zoom);
+        const jump = haversine(map.getCenter(), target);
+        if (jump < 1) return;   // sub-pixel, don't animate
+
+        if (map.getZoom() !== CONFIG.drive.zoom || jump > CONFIG.engine.maxSegment) {
+            programmatic(() => map.setView(target, CONFIG.drive.zoom, { animate: false }));
+        } else {
+            // Just under the 1 Hz tick so pans chain smoothly instead of colliding.
+            programmatic(() => map.panTo(target, { animate: true, duration: 0.9, easeLinearity: 0.6 }));
+        }
+    }
+
+    function updateArrow(f) {
+        if (!headingMarker) return;
+        const el = headingMarker.getElement();
+        if (!el) return;
+        const kind = f.headingKnown ? 'arrow' : 'dot';
+        if (el.dataset.kind !== kind) {
+            el.innerHTML = f.headingKnown ? ARROW_SVG : DOT_SVG;
+            el.dataset.kind = kind;
+        }
+        headingMarker.setLatLng(f.latlng);
+        const rot = el.querySelector('.drive-arrow-rot');
+        if (!rot) return;
+        if (f.headingKnown) {
+            // leaflet-rotate positions marker icons in the unrotated map pane and only
+            // spins them when rotateWithView is set, so this is a true SCREEN angle:
+            // north-up -> heading; heading-up (bearing = -heading) -> 0, i.e. straight up.
+            const mapBearing = (ROTATION_AVAILABLE && typeof map.getBearing === 'function') ? map.getBearing() : 0;
+            rot.style.transform = `rotate(${f.headingDeg + mapBearing}deg)`;
+        } else {
+            rot.style.transform = 'rotate(0deg)';
+        }
+    }
+
+    function updateHud(f) {
+        const mph = (f.speed != null) ? Math.round(mps2mph(f.speed)) : null;
+        els.hudSpeed.textContent = (mph == null) ? '--' : String(mph);
+        els.hudHeading.textContent = f.headingKnown
+            ? `${cardinal(f.headingDeg)} ${Math.round(f.headingDeg)}°` : 'HDG --';
+        els.hudAcc.textContent = `±${Math.round(f.accuracy)}m`;
+        els.hudCount.textContent = String(passLog.length);
+    }
+
+    function renderSourceBadges() {
+        if (!els.hudSources) return;
+        els.hudSources.innerHTML = SOURCES.map(s => {
+            const st = sourceState[s.key] || {};
+            let cls = 'status-indicator', text = s.label + ': ';
+            switch (st.status) {
+                case 'ok':      cls += ' locked';    text += (st.n != null ? st.n : 'OK'); break;
+                case 'loading': cls += ' searching'; text += '…'; break;
+                case 'empty':   cls += ' searching'; text += '0'; break;
+                case 'partial': cls += ' searching'; text += 'PARTIAL ' + (st.n != null ? st.n : ''); break;
+                case 'off':     cls += ' off';       text += 'NOT SET'; break;
+                case 'error':                        text += 'ERROR'; break;
+                default:        cls += ' off';       text += 'IDLE';
+            }
+            return `<span class="${cls}" title="${esc(st.msg || '')}">${esc(text)}</span>`;
+        }).join('');
+    }
+
+    /* ---------------- Follow-lock (Waze semantics) ---------------- */
+    function breakFollow() {
+        if (MODE !== 'drive' || programmaticMove) return;
+        followLock = false;
+        els.recenter.classList.add('on');
+        if (followTimer) clearTimeout(followTimer);
+        followTimer = setTimeout(resumeFollow, CONFIG.drive.followResumeMs);
+    }
+    function resumeFollow() {
+        if (MODE !== 'drive') return;
+        followLock = true;
+        els.recenter.classList.remove('on');
+        if (followTimer) { clearTimeout(followTimer); followTimer = null; }
+        if (curFix) applyDriveCamera(curFix);
+    }
+    map.on('dragstart', breakFollow);
+    map.on('zoomstart', () => { if (!programmaticMove) breakFollow(); });
+    els.recenter.addEventListener('click', resumeFollow);
+
+    /* ---------------- Enter / exit ---------------- */
+    async function enterDrive() {
+        if (MODE === 'drive') return;
+
+        // Started inside the click gesture — a screen wake lock requested after an
+        // await would be rejected by the browser as not user-initiated.
+        const wlPromise = requestWakeLock();
+
+        if (!acknowledgedSafety()) {
+            const ok = await askSafety();
+            if (!ok) { await wlPromise; releaseWakeLock(); return; }
+        }
+        await wlPromise;
+
+        MODE = 'drive';
+
+        const savedCenter = map.getCenter(), savedZoom = map.getZoom();
+        mutate(() => {}, () => map.setView(savedCenter, savedZoom, { animate: false }));
+
+        mutate(() => { els.body.dataset.mode = 'drive'; },
+               () => { els.body.dataset.mode = 'map'; });
+
+        mutate(() => { els.btnDrive.setAttribute('aria-pressed', 'true'); els.btnMap.setAttribute('aria-pressed', 'false'); },
+               () => { els.btnDrive.setAttribute('aria-pressed', 'false'); els.btnMap.setAttribute('aria-pressed', 'true'); });
+
+        // The hover coordinate readout is noise at speed, and it's hidden anyway.
+        mutate(() => map.off('mousemove', onMapMouseMove),
+               () => map.on('mousemove', onMapMouseMove));
+
+        // Parcel polygons at z17 while moving page continuously. Remove them from the
+        // map; the parcel SOURCE keeps feeding the engine through .nearby() queries.
+        if (CONFIG.drive.hideParcelsInDrive) {
+            [neParcels, ksParcels].forEach(lyr => {
+                if (lyr && map.hasLayer(lyr)) {
+                    mutate(() => map.removeLayer(lyr), () => lyr.addTo(map));
+                }
+            });
+        }
+
+        // Hide (don't remove) the MAP-mode GPS dot so layer z-order is untouched.
+        if (gpsMarker) {
+            const ms = { opacity: gpsMarker.options.opacity, fillOpacity: gpsMarker.options.fillOpacity };
+            const cs = { opacity: gpsCircle.options.opacity, fillOpacity: gpsCircle.options.fillOpacity };
+            mutate(() => { gpsMarker.setStyle({ opacity: 0, fillOpacity: 0 }); gpsCircle.setStyle({ opacity: 0, fillOpacity: 0 }); },
+                   () => { gpsMarker.setStyle(ms); gpsCircle.setStyle(cs); });
+        }
+
+        headingMarker = L.marker(curFix ? curFix.latlng : map.getCenter(), {
+            icon: L.divIcon({ className: 'drive-arrow', html: DOT_SVG, iconSize: [44, 44], iconAnchor: [22, 22] }),
+            interactive: false,
+            keyboard: false,
+            rotateWithView: false,
+            zIndexOffset: 900
+        }).addTo(map);
+        mutate(() => {}, () => { if (headingMarker) { map.removeLayer(headingMarker); headingMarker = null; } });
+
+        if (ROTATION_AVAILABLE) {
+            mutate(() => {}, () => { try { map.setBearing(0); } catch (e) {} });
+        }
+        mutate(() => {}, () => releaseWakeLock());
+
+        els.btnHeadingUp.style.display = ROTATION_AVAILABLE ? '' : 'none';
+        followLock = true;
+        els.recenter.classList.remove('on');
+        applyDetent();
+        renderSourceBadges();
+        renderEmptyState();
+
+        if (curFix) { applyDriveCamera(curFix); updateArrow(curFix); updateHud(curFix); }
+        else { startGeolocation(true); }
+    }
+
+    function exitDrive() {
+        if (MODE !== 'drive') return;
+        MODE = 'map';
+        while (driveUndo.length) {
+            try { driveUndo.pop()(); } catch (e) { console.warn('exitDrive undo step failed:', e); }
+        }
+        if (followTimer) { clearTimeout(followTimer); followTimer = null; }
+        followLock = true;
+        els.recenter.classList.remove('on');
+        updateParcelStatus();
+    }
+
+    els.btnMap.addEventListener('click', exitDrive);
+    els.btnDrive.addEventListener('click', enterDrive);
+    els.btnHeadingUp.addEventListener('click', () => {
+        headingUp = !headingUp;
+        els.btnHeadingUp.setAttribute('aria-pressed', headingUp ? 'true' : 'false');
+        savePrefs();
+        if (!headingUp && ROTATION_AVAILABLE) { try { map.setBearing(0); } catch (e) {} }
+        if (curFix) { applyDriveCamera(curFix); updateArrow(curFix); }
+    });
+
+    /* ---------------- Screen wake lock ---------------- */
+    async function requestWakeLock() {
+        if (!CONFIG.drive.wakeLock || !('wakeLock' in navigator)) return;
+        try { wakeLock = await navigator.wakeLock.request('screen'); }
+        catch (e) { console.info('Wake lock unavailable:', e && e.message); }
+    }
+    function releaseWakeLock() {
+        if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+    }
+    document.addEventListener('visibilitychange', () => {
+        // Backgrounding is exactly when you're still driving, so GPS keeps running.
+        // Only the wake lock needs re-acquiring when the page comes back.
+        if (!document.hidden && MODE === 'drive' && !wakeLock) requestWakeLock();
+    });
+
+    /* ---------------- One-time safety acknowledgement ---------------- */
+    function acknowledgedSafety() {
+        try { return localStorage.getItem(CONFIG.storage.ackKey) === '1'; } catch (e) { return false; }
+    }
+    function askSafety() {
+        return new Promise(resolve => {
+            els.ack.classList.add('on');
+            const ok = document.getElementById('ack-ok');
+            const cancel = document.getElementById('ack-cancel');
+            function done(v) {
+                els.ack.classList.remove('on');
+                ok.removeEventListener('click', yes);
+                cancel.removeEventListener('click', no);
+                resolve(v);
+            }
+            function yes() { try { localStorage.setItem(CONFIG.storage.ackKey, '1'); } catch (e) {} done(true); }
+            function no() { done(false); }
+            ok.addEventListener('click', yes);
+            cancel.addEventListener('click', no);
+        });
+    }
+
+    /* =======================================================================
+       FEED UI
+       ======================================================================= */
+    let feedFilter = 'all';
+    const DETENTS = [0.16, 0.45, 0.78];   // peek / half / full, as a fraction of viewport height
+    let detentIdx = 0;
+
+    function applyDetent() {
+        const landscapeRail = window.innerWidth > window.innerHeight && window.innerWidth >= 720;
+        els.sheet.style.height = landscapeRail ? '' : Math.round(DETENTS[detentIdx] * window.innerHeight) + 'px';
+        positionRecenter();
+        if (MODE === 'drive' && curFix && followLock) applyDriveCamera(curFix);
+    }
+    function positionRecenter() {
+        els.recenter.style.bottom = (sheetHeightPx() + 16) + 'px';
+    }
+    els.handle.addEventListener('click', () => {
+        detentIdx = (detentIdx + 1) % DETENTS.length;
+        applyDetent();
+        savePrefs();
+    });
+
+    function timeStr(t) { return new Date(t).toTimeString().slice(0, 8); }
+
+    function rowHtml(e) {
+        const bits = [];
+        if (e.owner) bits.push(`<span class="feed-owner">${esc(e.owner)}</span>`);
+        bits.push(`${e.dist}m`);
+        if (e.side) bits.push(e.side);
+        bits.push(timeStr(e.t));
+        const pill = e.source === 'ng911' ? 'NG911' : (e.source === 'parcel-ne' ? 'NE' : 'KS');
+        return `<div class="feed-main"><div class="feed-addr">${esc(e.address)}</div>` +
+               `<div class="feed-sub">${bits.join(' &middot; ')}</div></div>` +
+               `<span class="feed-pill">${pill}</span>`;
+    }
+    function matchesFilter(e) {
+        if (feedFilter === 'all') return true;
+        if (feedFilter === 'ng911') return e.source === 'ng911';
+        return e.source.indexOf('parcel') === 0;
+    }
+    function makeRow(e) {
+        const div = document.createElement('div');
+        div.className = 'feed-row';
+        div.dataset.id = e.id;
+        div.innerHTML = rowHtml(e);
+        div.addEventListener('click', () => openEntry(e));
+        return div;
+    }
+    // Prepend a single node. A full re-render at 1 Hz would jank the scroll position
+    // out from under whoever is reading the list.
+    function prependRow(e) {
+        if (!matchesFilter(e)) return;
+        els.empty.style.display = 'none';
+        els.list.insertBefore(makeRow(e), els.list.firstChild);
+    }
+    function renderFeed() {
+        els.list.innerHTML = '';
+        els.list.appendChild(els.empty);
+        const rows = passLog.filter(matchesFilter);
+        rows.forEach(e => els.list.appendChild(makeRow(e)));
+        renderEmptyState();
+        updateFeedCount();
+    }
+    function updateFeedCount() {
+        els.count.textContent = String(passLog.length);
+        els.hudCount.textContent = String(passLog.length);
+    }
+
+    /* Honest empty states. Never a spinner that runs forever, and never a blank
+       list that looks identical whether nothing was found, nothing was configured,
+       or the GPS was denied. */
+    function renderEmptyState() {
+        if (!els.empty) return;
+        if (passLog.filter(matchesFilter).length) { els.empty.style.display = 'none'; return; }
+        els.empty.style.display = '';
+        const anyEnabled = SOURCES.some(s => s.enabled());
+        const anyConfigured = SOURCES.some(s => s.enabled() && sourceState[s.key] && sourceState[s.key].status !== 'off');
+        let msg;
+        if (!anyEnabled) {
+            msg = 'All address sources are turned off in <b>CONFIG.sources</b>.';
+        } else if (!anyConfigured) {
+            msg = 'No address source is configured.<br>Add <b>data/address_points.geojson</b> (your NG911 points) ' +
+                  'or set a parcel service URL in <b>CONFIG.parcels</b>.';
+        } else if (!curFix) {
+            msg = 'Waiting for a GPS fix.<br>Grant location permission, or open with <b>?sim=1</b> to test without driving.';
+        } else if (!prefetchAnchor) {
+            msg = 'Looking up the corridor around you&hellip;';
+        } else {
+            msg = `0 addresses found in this corridor (${(CONFIG.engine.prefetchRadius / 1000).toFixed(1)} km) ` +
+                  `&middot; last checked ${timeStr(lastPrefetchAt)}<br>${addrCache.size} candidates cached.`;
+        }
+        els.empty.innerHTML = msg;
+    }
+
+    function openEntry(e) {
+        breakFollow();
+        map.setView([e.lat, e.lng], Math.max(map.getZoom(), 18));
+        let html;
+        if (e.props && e.source.indexOf('parcel') === 0) {
+            html = buildParcelPopup(e.props, e.source === 'parcel-ne' ? 'NE (Richardson Co.)' : 'KS (Brown/Doniphan Co.)');
+        } else {
+            html = '<div class="parcel-popup"><h4>ADDRESS POINT</h4><table>' +
+                row('Address', { value: e.address }) +
+                (e.owner ? row('Owner', { value: e.owner }) : '') +
+                row('Passed', { value: new Date(e.t).toLocaleString() }) +
+                row('Offset', { value: e.dist + ' m' + (e.side ? ' ' + e.side : '') }) +
+                '</table></div>';
+        }
+        L.popup({ maxWidth: 320 }).setLatLng([e.lat, e.lng]).setContent(html).openOn(map);
+    }
+
+    // Audible + haptic notice, so an address does not require looking at the screen.
+    let audioCtx = null;
+    function notifyPass() {
+        if (CONFIG.drive.vibrate && navigator.vibrate) { try { navigator.vibrate(30); } catch (err) {} }
+        if (!CONFIG.drive.chime || MODE !== 'drive') return;
+        try {
+            audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+            const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+            o.frequency.value = 880; o.type = 'sine';
+            g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.12, audioCtx.currentTime + 0.01);
+            g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.18);
+            o.connect(g).connect(audioCtx.destination);
+            o.start(); o.stop(audioCtx.currentTime + 0.2);
+        } catch (err) { /* audio is a nicety, never a failure */ }
+    }
+
+    let toastTimer = null;
+    function toast(msg, ms) {
+        els.toast.textContent = msg;
+        els.toast.classList.add('on');
+        els.toast.style.bottom = (sheetHeightPx() + 16) + 'px';
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => els.toast.classList.remove('on'), ms || 4200);
+    }
+
+    /* ---------------- Filters ---------------- */
+    const filterBtns = {
+        all: document.getElementById('btn-filter-all'),
+        ng911: document.getElementById('btn-filter-ng911'),
+        parcel: document.getElementById('btn-filter-parcel')
+    };
+    Object.keys(filterBtns).forEach(k => filterBtns[k].addEventListener('click', () => {
+        feedFilter = k;
+        Object.keys(filterBtns).forEach(j => filterBtns[j].setAttribute('aria-pressed', j === k ? 'true' : 'false'));
+        renderFeed();
+    }));
+
+    /* =======================================================================
+       PERSISTENCE & EXPORT
+       ======================================================================= */
+    let saveTimer = null, storageBroken = false;
+
+    function savePassLog() {
+        if (!CONFIG.storage.enabled || storageBroken) return;
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(writePassLog, CONFIG.storage.autosaveMs);
+    }
+    function writePassLog() {
+        try {
+            localStorage.setItem(CONFIG.storage.key, JSON.stringify(passLog));
+        } catch (e) {
+            // Quota exhaustion is real, and iOS private mode throws on ANY setItem.
+            try {
+                localStorage.setItem(CONFIG.storage.key, JSON.stringify(passLog.slice(0, 500)));
+                toast('Storage nearly full — older entries dropped from the saved copy. Export to keep them.');
+            } catch (e2) {
+                storageBroken = true;
+                toast('This browser will not store the log. It stays in memory until you reload.');
+            }
+        }
+    }
+    function loadPassLog() {
+        if (!CONFIG.storage.enabled) return;
+        try {
+            const raw = localStorage.getItem(CONFIG.storage.key);
+            if (!raw) return;
+            const arr = JSON.parse(raw);
+            if (!Array.isArray(arr)) return;
+            passLog = arr;
+            // Rehydrate the dedup set too. Without this every reload re-logs every
+            // house you already passed as soon as you drive back through the corridor.
+            arr.forEach(e => logged.add(e.id));
+        } catch (e) { console.warn('Could not restore pass log:', e && e.message); }
+    }
+    function savePrefs() {
+        try { localStorage.setItem(CONFIG.storage.prefsKey, JSON.stringify({ headingUp, detentIdx })); }
+        catch (e) {}
+    }
+    function loadPrefs() {
+        try {
+            const p = JSON.parse(localStorage.getItem(CONFIG.storage.prefsKey) || '{}');
+            if (typeof p.headingUp === 'boolean') headingUp = p.headingUp;
+            if (Number.isInteger(p.detentIdx) && p.detentIdx >= 0 && p.detentIdx < DETENTS.length) detentIdx = p.detentIdx;
+        } catch (e) {}
+    }
+
+    function csvCell(v) {
+        const s = (v == null) ? '' : String(v);
+        return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+    function toCSV(entries) {
+        const head = ['address','owner','lat','lng','source','distance_m','side','heading_deg','timestamp_iso','timestamp_local'];
+        const lines = [head.join(',')];
+        for (const e of entries) {
+            lines.push([
+                e.address, e.owner, e.lat, e.lng, e.source, e.dist, e.side, e.heading,
+                new Date(e.t).toISOString(), new Date(e.t).toLocaleString()
+            ].map(csvCell).join(','));
+        }
+        return lines.join('\r\n');
+    }
+    function toGeoJSON(entries) {
+        return {
+            type: 'FeatureCollection',
+            features: entries.map(e => ({
+                type: 'Feature',
+                properties: {
+                    address: e.address, owner: e.owner, source: e.source,
+                    distance_m: e.dist, side: e.side, heading_deg: e.heading,
+                    timestamp: new Date(e.t).toISOString()
+                },
+                geometry: { type: 'Point', coordinates: [e.lng, e.lat] }
+            }))
+        };
+    }
+    function stamp() {
+        const d = new Date();
+        const p = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+    }
+    function download(name, text, mime) {
+        const url = URL.createObjectURL(new Blob([text], { type: mime }));
+        const a = document.createElement('a');
+        a.href = url; a.download = name;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    document.getElementById('btn-csv').addEventListener('click', () => {
+        if (!passLog.length) return toast('Nothing logged yet.');
+        download(`passed-addresses_${stamp()}.csv`, toCSV(passLog), 'text/csv');
+    });
+    document.getElementById('btn-geojson').addEventListener('click', () => {
+        if (!passLog.length) return toast('Nothing logged yet.');
+        // Round-trips straight back into the sim's track importer, so a real drive
+        // can be replayed at a desk.
+        download(`passed-addresses_${stamp()}.geojson`, JSON.stringify(toGeoJSON(passLog), null, 2), 'application/geo+json');
+    });
+    document.getElementById('btn-clear').addEventListener('click', () => {
+        if (!passLog.length) return;
+        if (!confirm(`Clear all ${passLog.length} logged addresses? Export first if you need them.`)) return;
+        passLog = [];
+        logged.clear();
+        try { localStorage.removeItem(CONFIG.storage.key); } catch (e) {}
+        renderFeed();
+    });
+
+    /* =======================================================================
+       SIM DRIVE (verification)
+       The simulator replaces the SOURCE of fixes, not the consumer: it calls the
+       same onFix() watchPosition does, so prefetch, segment matching, dedup, the
+       feed, and the camera are all exercised exactly as they are on the road.
+       ======================================================================= */
+    const sim = {
+        on: false, playing: false, track: [], s: 0, timer: null, line: null,
+        mph: CONFIG.sim.mph, comp: CONFIG.sim.compression, jitter: CONFIG.sim.jitterM, drop: CONFIG.sim.dropPct
+    };
+    const simEls = {
+        panel: document.getElementById('sim-panel'),
+        status: document.getElementById('sim-status'),
+        play: document.getElementById('sim-play'),
+        mph: document.getElementById('sim-mph'),
+        comp: document.getElementById('sim-comp'),
+        jitter: document.getElementById('sim-jitter'),
+        drop: document.getElementById('sim-drop')
+    };
+
+    function trackLength(t) {
+        let total = 0;
+        for (let i = 1; i < t.length; i++) total += haversine(t[i - 1], t[i]);
+        return total;
+    }
+    function pointAlong(t, s) {
+        if (t.length < 2) return { pt: t[0], brg: 0 };
+        let acc = 0;
+        for (let i = 1; i < t.length; i++) {
+            const seg = haversine(t[i - 1], t[i]);
+            if (acc + seg >= s || i === t.length - 1) {
+                const frac = seg > 0 ? Math.max(0, Math.min(1, (s - acc) / seg)) : 0;
+                const brg = bearing(t[i - 1], t[i]);
+                return { pt: destPoint(t[i - 1], brg, seg * frac), brg };
+            }
+            acc += seg;
+        }
+        return { pt: t[t.length - 1], brg: 0 };
+    }
+    function gauss() {
+        let u = 0, v = 0;
+        while (u === 0) u = Math.random();
+        while (v === 0) v = Math.random();
+        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    }
+    function simTick() {
+        if (sim.track.length < 2) return;
+        const total = trackLength(sim.track);
+        sim.s += sim.mph * 0.44704 * (CONFIG.sim.tickMs / 1000) * sim.comp;
+        if (sim.s >= total) { sim.s = total; simPause(); }
+
+        // Dropped fixes are the highest-value test here: with drops on at 16x, a
+        // point-in-radius implementation starts skipping houses immediately, while
+        // the segment test does not.
+        if (Math.random() * 100 < sim.drop) { updateSimStatus(total); return; }
+
+        const { pt, brg } = pointAlong(sim.track, sim.s);
+        let lat = pt.lat, lng = pt.lng;
+        if (sim.jitter > 0) {
+            lat += gauss() * sim.jitter / 110574;
+            lng += gauss() * sim.jitter / (111320 * Math.cos(lat * DEG));
+        }
+        onFix({
+            latlng: L.latLng(lat, lng),
+            accuracy: Math.max(5, sim.jitter * 1.5),
+            heading: brg,
+            speed: sim.mph * 0.44704,
+            t: Date.now(),
+            simulated: true
+        });
+        updateSimStatus(total);
+    }
+    function updateSimStatus(total) {
+        simEls.status.textContent =
+            `${(sim.s / 1000).toFixed(2)} / ${(total / 1000).toFixed(2)} km · cache ${addrCache.size} · logged ${passLog.length}`;
+    }
+    function simPlay() {
+        if (sim.track.length < 2) { simEls.status.textContent = 'Draw or load a track first.'; return; }
+        sim.playing = true;
+        simEls.play.innerHTML = '&#10074;&#10074; PAUSE';
+        if (sim.timer) clearInterval(sim.timer);
+        sim.timer = setInterval(simTick, CONFIG.sim.tickMs);
+    }
+    function simPause() {
+        sim.playing = false;
+        simEls.play.innerHTML = '&#9654; PLAY';
+        if (sim.timer) { clearInterval(sim.timer); sim.timer = null; }
+    }
+    function drawTrack() {
+        if (sim.line) { map.removeLayer(sim.line); sim.line = null; }
+        if (sim.track.length > 1) {
+            sim.line = L.polyline(sim.track.map(p => [p.lat, p.lng]),
+                { color: '#ff4444', weight: 3, dashArray: '5,5', interactive: false }).addTo(map);
+        }
+    }
+    function setTrack(pts) {
+        sim.track = pts;
+        sim.s = 0;
+        drawTrack();
+        simEls.status.textContent = `${pts.length} points · ${(trackLength(pts) / 1000).toFixed(2)} km`;
+    }
+    function parseTrack(text) {
+        text = String(text || '').trim();
+        if (!text) return [];
+        if (text[0] === '{') {
+            try {
+                const g = JSON.parse(text);
+                if (g.type === 'LineString') return g.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
+                if (g.type === 'FeatureCollection') {
+                    const pts = [];
+                    for (const f of (g.features || [])) {
+                        if (f.geometry && f.geometry.type === 'LineString') {
+                            return f.geometry.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
+                        }
+                        const p = centroidOf(f.geometry);
+                        if (p) pts.push(p);
+                    }
+                    return pts;
+                }
+            } catch (e) { return []; }
+            return [];
+        }
+        return text.split(/[\r\n]+/).map(line => {
+            const m = line.split(',');
+            if (m.length < 2) return null;
+            const lat = parseFloat(m[0]), lng = parseFloat(m[1]);
+            return (Number.isFinite(lat) && Number.isFinite(lng)) ? { lat, lng } : null;
+        }).filter(Boolean);
+    }
+    function onSimMapClick(e) {
+        sim.track.push({ lat: e.latlng.lat, lng: e.latlng.lng });
+        sim.s = 0;
+        drawTrack();
+        simEls.status.textContent = `${sim.track.length} points · ${(trackLength(sim.track) / 1000).toFixed(2)} km`;
+    }
+    function enableSim() {
+        if (sim.on) return;
+        sim.on = true;
+        simEls.panel.classList.add('on');
+        map.on('click', onSimMapClick);
+        toast('Sim drive enabled — tap the map to draw a route, then PLAY.');
+    }
+    function disableSim() {
+        sim.on = false;
+        simPause();
+        simEls.panel.classList.remove('on');
+        map.off('click', onSimMapClick);
+        if (sim.line) { map.removeLayer(sim.line); sim.line = null; }
+    }
+    simEls.play.addEventListener('click', () => sim.playing ? simPause() : simPlay());
+    document.getElementById('sim-step').addEventListener('click', simTick);
+    document.getElementById('sim-reset').addEventListener('click', () => {
+        simPause(); sim.s = 0; simEls.status.textContent = 'Reset to start of track.';
+    });
+    document.getElementById('sim-close').addEventListener('click', disableSim);
+    document.getElementById('sim-load').addEventListener('click', () => {
+        const pts = parseTrack(document.getElementById('sim-track-in').value);
+        if (pts.length < 2) { simEls.status.textContent = 'Could not parse at least 2 points.'; return; }
+        setTrack(pts);
+        map.fitBounds(L.latLngBounds(pts.map(p => [p.lat, p.lng])).pad(0.2));
+    });
+    document.getElementById('sim-default').addEventListener('click', () => {
+        // 5 km due east of the configured centre = 12 prefetch cycles, zero setup.
+        const a = { lat: CONFIG.center[0], lng: CONFIG.center[1] };
+        setTrack([a, destPoint(a, 90, 5000)]);
+        map.setView([a.lat, a.lng], 14);
+    });
+    // Synthetic houses along the track, so the whole pipeline is exercisable with
+    // no real address file present — the repo deliberately ships none.
+    document.getElementById('sim-seed').addEventListener('click', () => {
+        if (sim.track.length < 2) { simEls.status.textContent = 'Draw a track first.'; return; }
+        const total = trackLength(sim.track);
+        let n = 0;
+        for (let s = 100; s < total; s += 180) {
+            const { pt, brg } = pointAlong(sim.track, s);
+            const h = destPoint(pt, brg + ((n % 2 === 0) ? 90 : -90), 30 + (n % 3) * 8);
+            const addr = `${1000 + n * 2} Sim Rd`;
+            ng911Features.push({
+                id: 'ng911:sim-' + n,
+                lat: h.lat, lng: h.lng,
+                address: addr,
+                owner: `SIM OWNER ${n}`,
+                props: { address: addr, owner: `SIM OWNER ${n}`, note: 'synthetic test point' }
+            });
+            n++;
+        }
+        ng911Loaded = true;
+        prefetchAnchor = null;      // force the next tick to re-prefetch
+        lastPrefetchAt = 0;
+        setSourceState('ng911', 'ok', ng911Features.length);
+        simEls.status.textContent = `Seeded ${n} synthetic houses along the track.`;
+    });
+    simEls.mph.addEventListener('input', e => { sim.mph = +e.target.value; document.getElementById('sim-mph-val').textContent = sim.mph; });
+    simEls.comp.addEventListener('input', e => { sim.comp = +e.target.value; document.getElementById('sim-comp-val').textContent = sim.comp; });
+    simEls.jitter.addEventListener('input', e => { sim.jitter = +e.target.value; document.getElementById('sim-jitter-val').textContent = sim.jitter; });
+    simEls.drop.addEventListener('input', e => { sim.drop = +e.target.value; document.getElementById('sim-drop-val').textContent = sim.drop; });
+
+    // Five taps on the title opens the sim — works on a phone in a parking lot
+    // with no keyboard and no way to edit the URL.
+    let titleTaps = 0, titleTapT = 0;
+    els.title.addEventListener('click', () => {
+        const now = Date.now();
+        titleTaps = (now - titleTapT < 900) ? titleTaps + 1 : 1;
+        titleTapT = now;
+        if (titleTaps >= 5) { titleTaps = 0; sim.on ? disableSim() : enableSim(); }
+    });
+
+    /* =======================================================================
+       SELFTEST  (?selftest=1)
+       These are precisely the bugs that stay invisible until you are on the road.
+       ======================================================================= */
+    function runSelftest() {
+        const out = [];
+        let pass = 0, fail = 0;
+        function ok(name, cond, detail) {
+            if (cond) { pass++; out.push(`<span class="pass">PASS</span>  ${esc(name)}`); }
+            else { fail++; out.push(`<span class="fail">FAIL</span>  ${esc(name)}${detail ? '  — ' + esc(detail) : ''}`); }
+        }
+        const near = (a, b, tol) => Math.abs(a - b) <= tol;
+
+        /* --- distances & bearings --- */
+        ok('haversine 1° lat ≈ 111195 m', near(haversine({lat:0,lng:0}, {lat:1,lng:0}), 111195, 60),
+            haversine({lat:0,lng:0}, {lat:1,lng:0}).toFixed(1));
+        ok('haversine identical points = 0', haversine({lat:39.9,lng:-95.3}, {lat:39.9,lng:-95.3}) === 0);
+        ok('bearing north = 0',   near(bearing({lat:0,lng:0}, {lat:1,lng:0}), 0, 0.01));
+        ok('bearing east = 90',   near(bearing({lat:0,lng:0}, {lat:0,lng:1}), 90, 0.01));
+        ok('bearing south = 180', near(bearing({lat:1,lng:0}, {lat:0,lng:0}), 180, 0.01));
+        ok('bearing west = 270',  near(bearing({lat:0,lng:1}, {lat:0,lng:0}), 270, 0.01));
+
+        const home = {lat:39.9772,lng:-95.2974};
+        const dp = destPoint(home, 90, 1000);
+        ok('destPoint 1000 m east: distance round-trips', near(haversine(home, dp), 1000, 1), haversine(home, dp).toFixed(2));
+        ok('destPoint 1000 m east: bearing round-trips', near(bearing(home, dp), 90, 0.5), bearing(home, dp).toFixed(3));
+
+        /* --- distToSegment: the core of not skipping houses --- */
+        const A = {lat:39.9772,lng:-95.3000}, B = {lat:39.9772,lng:-95.2900};
+        const mid = {lat:39.9772,lng:-95.2950};
+        ok('distToSegment: point on the segment = 0', distToSegment(mid, A, B) < 1, distToSegment(mid, A, B).toFixed(3));
+        const off = destPoint(mid, 0, 50);
+        ok('distToSegment: 50 m perpendicular', near(distToSegment(off, A, B), 50, 2), distToSegment(off, A, B).toFixed(2));
+        // Perpendicular foot OUTSIDE the segment must clamp to the endpoint.
+        const past = destPoint(B, 90, 300);
+        ok('distToSegment: clamps beyond the endpoint', near(distToSegment(past, A, B), 300, 6), distToSegment(past, A, B).toFixed(1));
+        ok('distToSegment: degenerate zero-length segment', near(distToSegment(off, mid, mid), 50, 2), distToSegment(off, mid, mid).toFixed(2));
+        // The whole point: a house 40 m off the road, midway between two fixes ~427 m
+        // apart, is INSIDE passRadius of the segment but far outside it from either fix.
+        const between = destPoint(mid, 0, 40);
+        ok('segment test finds a house between sparse fixes',
+            distToSegment(between, A, B) <= CONFIG.engine.passRadius &&
+            haversine(B, between) > CONFIG.engine.passRadius &&
+            haversine(A, between) > CONFIG.engine.passRadius,
+            `seg=${distToSegment(between, A, B).toFixed(1)}m  fromB=${haversine(B, between).toFixed(1)}m`);
+
+        /* --- centroidOf: GeoJSON is [lng, lat] --- */
+        const sq = { type:'Polygon', coordinates:[[[-95.30,39.97],[-95.29,39.97],[-95.29,39.98],[-95.30,39.98],[-95.30,39.97]]] };
+        const c = centroidOf(sq);
+        ok('centroidOf polygon: lat not swapped with lng', !!c && near(c.lat, 39.975, 0.001), c && String(c.lat));
+        ok('centroidOf polygon: lng correct', !!c && near(c.lng, -95.295, 0.001), c && String(c.lng));
+        ok('centroidOf Point respects [lng,lat]', (() => {
+            const p = centroidOf({type:'Point', coordinates:[-95.3, 39.9]});
+            return p && p.lat === 39.9 && p.lng === -95.3;
+        })());
+        const mp = { type:'MultiPolygon', coordinates:[
+            [[[-95.300,39.970],[-95.299,39.970],[-95.299,39.971],[-95.300,39.971],[-95.300,39.970]]],
+            [[[-95.200,39.900],[-95.100,39.900],[-95.100,40.000],[-95.200,40.000],[-95.200,39.900]]]
+        ]};
+        const cm = centroidOf(mp);
+        ok('centroidOf MultiPolygon picks the largest ring', !!cm && near(cm.lng, -95.15, 0.01), cm && String(cm.lng));
+        ok('centroidOf degenerate ring -> bbox centre', (() => {
+            const z = centroidOf({type:'Polygon', coordinates:[[[-95.3,39.9],[-95.3,39.9],[-95.3,39.9]]]});
+            return !!z && near(z.lat, 39.9, 1e-9) && near(z.lng, -95.3, 1e-9);
+        })());
+        ok('centroidOf null geometry is null', centroidOf(null) === null && centroidOf({type:'Polygon'}) === null);
+
+        /* --- address normalisation & cross-source dedup --- */
+        ok('normalizeAddress is idempotent',
+            normalizeAddress(normalizeAddress('1302 Chay Drive.')) === normalizeAddress('1302 Chay Drive.'));
+        ok('normalizeAddress collapses spelling variants',
+            normalizeAddress('1302 Chay Drive') === normalizeAddress('1302  chay dr'),
+            normalizeAddress('1302 Chay Drive') + ' vs ' + normalizeAddress('1302  chay dr'));
+        addrCache.clear();
+        mergeCandidates([{ id:'ng911:x', lat:39.97720, lng:-95.29740, address:'1302 Chay Dr', source:'ng911' }]);
+        const before = addrCache.size;
+        mergeCandidates([{ id:'parcel-ne:9', lat:39.97722, lng:-95.29741, address:'1302 CHAY DRIVE', source:'parcel-ne' }]);
+        ok('same house from two sources dedups to one row', addrCache.size === before, `${before} -> ${addrCache.size}`);
+        mergeCandidates([{ id:'parcel-ne:10', lat:39.98500, lng:-95.28000, address:'99 Other Rd', source:'parcel-ne' }]);
+        ok('a genuinely different house is still added', addrCache.size === before + 1, String(addrCache.size));
+        addrCache.clear();
+
+        /* --- export escaping --- */
+        const csv = toCSV([{ address:'1 A St, Apt "B"', owner:'DOE, JOHN', lat:1, lng:2,
+                             source:'ng911', dist:5, side:'LEFT', heading:90, t:0 }]);
+        const dataLine = csv.split('\r\n')[1];
+        ok('CSV escapes an embedded comma and quote', dataLine.indexOf('"1 A St, Apt ""B"""') === 0, dataLine);
+        ok('CSV quotes an owner containing a comma', dataLine.indexOf('"DOE, JOHN"') > -1, dataLine);
+        ok('CSV header carries the owner column', csv.split('\r\n')[0].indexOf('owner') > -1);
+        const gj = toGeoJSON([{ address:'x', lat:39.9, lng:-95.3, source:'ng911', dist:1, side:null, heading:null, t:0 }]);
+        ok('GeoJSON export writes [lng,lat]',
+            gj.features[0].geometry.coordinates[0] === -95.3 && gj.features[0].geometry.coordinates[1] === 39.9);
+
+        /* --- misc --- */
+        ok('metresPerPixel z17 @40N ≈ 0.915', near(metresPerPixel(40, 17), 0.915, 0.02), metresPerPixel(40, 17).toFixed(4));
+        ok('cardinal(0) = N', cardinal(0) === 'N');
+        ok('cardinal(90) = E', cardinal(90) === 'E');
+        ok('cardinal(359) = N', cardinal(359) === 'N');
+        ok('mps2mph(26.8224) ≈ 60', near(mps2mph(26.8224), 60, 0.01), mps2mph(26.8224).toFixed(3));
+
+        const el = document.getElementById('selftest');
+        el.classList.add('on');
+        el.innerHTML = `SELFTEST — ${pass} passed, ${fail} failed\n\n` + out.join('\n') +
+            `\n\nRotation plugin: ${ROTATION_AVAILABLE ? 'available' : 'NOT loaded — app stays north-up'}`;
+        console.log(`selftest: ${pass} passed, ${fail} failed`);
+        return { pass, fail };
+    }
+
+    /* =======================================================================
+       BOOT
+       ======================================================================= */
+    loadPrefs();
+    loadPassLog();
+    renderFeed();
+    applyDetent();
+    renderSourceBadges();
+    els.btnHeadingUp.setAttribute('aria-pressed', headingUp ? 'true' : 'false');
+    if (!ROTATION_AVAILABLE) els.btnHeadingUp.style.display = 'none';
+
+    window.addEventListener('resize', () => {
+        applyDetent();
+        if (MODE === 'drive' && curFix && followLock) applyDriveCamera(curFix);
+    });
+    window.addEventListener('orientationchange', () => setTimeout(applyDetent, 250));
+    window.addEventListener('online',  () => toast('Back online — address lookups resumed.'));
+    window.addEventListener('offline', () => toast('Offline — logging continues from the cached corridor.'));
+
+    if (QS.get('selftest') === '1') {
+        runSelftest();
+    } else {
+        // Kick off GPS on load; the browser will prompt for permission.
+        startGeolocation(false);
+
+        const simFlag = QS.get('sim') === '1' ||
+            (() => { try { return localStorage.getItem('simdrive') === '1'; } catch (e) { return false; } })();
+        if (simFlag) {
+            if (QS.get('mph')) {
+                sim.mph = +QS.get('mph');
+                simEls.mph.value = sim.mph;
+                document.getElementById('sim-mph-val').textContent = sim.mph;
+            }
+            enableSim();
+        }
+        if (QS.get('drive') === '1') enterDrive();
+    }
+
+    // Exposed for console-driven verification — hand-feed fixes with no browser GPS.
+    window.FIELDMAP = {
+        CONFIG, onFix, addrCache, logged, sim, runSelftest,
+        passLog: () => passLog,
+        trail: () => trail,          // observed track — lets a test assert coverage honestly
+        haversine, bearing, destPoint, distToSegment, centroidOf,
+        normalizeAddress, mergeCandidates, scanPass, toCSV, toGeoJSON,
+        enterDrive, exitDrive
+    };
     </script>
 </body>
 </html>
