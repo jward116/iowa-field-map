@@ -12,6 +12,19 @@ your GPS location over https.
 For local work, serve the folder (`python3 -m http.server`) rather than opening the file
 directly, so the address-points file and the offline service worker can load.
 
+## Which build am I looking at?
+
+Open **⚙ SETUP** — the build stamp is the first line, e.g. `build 2026-08-06.4 · offline cache active`.
+`?selftest=1` prints it too. If that doesn't match what was last merged, the deploy didn't land.
+
+Check the deploy itself under the repo's **Actions → "pages build and deployment"**. A run whose
+`build` job is cancelled and whose `deploy` job is skipped means the site is still serving the
+previous commit, however green the merge looked.
+
+> **`.nojekyll` must stay in the repo root.** Without it, GitHub Pages runs every deploy through
+> Jekyll. This site uses no Jekyll features, so that step is pure risk — it is what hung a deploy
+> for 15 minutes and left an old build live for hours.
+
 ## First run, on the phone you'll actually use
 
 1. Open the link above and allow location when asked.
@@ -127,6 +140,14 @@ Rural Richardson, Brown and Doniphan have real dead zones, so:
 - Addresses keep logging from the cached corridor regardless — that was already true.
 
 GIS service responses are deliberately **never** cached: stale ownership is worse than none.
+
+The **page itself is fetched network-first** with the cache as fallback. Cache-first on the page
+is how a service worker quietly pins a device to an old build forever — the app keeps opening and
+looks perfectly healthy while never picking up another deploy. Offline still works; when there is
+signal, the newest build wins. A new version announces itself with a tap-to-reload notice rather
+than swapping code under a moving vehicle.
+
+If a phone is ever stuck on an old build, SETUP → **CLEAR TILES** and a reload will clear it.
 
 ## Configuration
 

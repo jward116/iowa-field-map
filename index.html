@@ -627,6 +627,13 @@
         }
         #setup-box h4 { margin: 0 0 8px; color: #00ff00; font-size: 14px; letter-spacing: 1px; }
         .setup-intro { margin: 0 0 14px; color: #9a9a9a; font-size: 12px; line-height: 1.6; }
+        /* Answers "which build is on this phone?" without anyone squinting at a header. */
+        #setup-build {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11px;
+            color: #ffcc33;
+            margin: -4px 0 10px;
+        }
         .setup-row { border-top: 1px solid #222; padding: 12px 0; }
         .setup-head {
             display: flex; align-items: center; gap: 8px;
@@ -772,6 +779,7 @@
 
     <div id="setup-modal"><div id="setup-box">
         <h4>SETUP &amp; SERVICE CHECK</h4>
+        <div id="setup-build">build &mdash;</div>
         <p class="setup-intro">Press <b>TEST</b> on each service to see whether it answers from
         this device, right where you are standing. Anything you change here is saved on this
         phone only &mdash; no redeploy, no code change.</p>
@@ -803,6 +811,15 @@
        is stored in this repo.
        ======================================================================= */
     const CONFIG = {
+        /* Bump this in any commit that changes what gets deployed.
+
+           It is shown in the SETUP header and by ?selftest=1, and it names the
+           service-worker caches, so a deploy retires the old ones automatically.
+           This exists because "which build is actually on the phone?" was, for an
+           hour, a question nobody could answer without reading header strings from
+           memory — while GitHub Pages quietly served a build from four months back. */
+        build: '2026-08-06.4',
+
         center: [39.9772, -95.2974],   // White Cloud, KS region
         zoom: 12,
         parcelMinZoom: 15,             // parcels only render when zoomed in (dense statewide layers)
@@ -1595,8 +1612,14 @@
                 if (wantRecenter) { map.setView(lastFix, Math.max(map.getZoom(), 16)); wantRecenter = false; }
             }, err => {
                 gpsFailed = true;
-                gpsStatus.textContent = (err && err.code === 1) ? 'GPS: DENIED' : 'GPS: NO FIX';
+                const denied = err && err.code === 1;
+                gpsStatus.textContent = denied ? 'GPS: DENIED — TAP' : 'GPS: NO FIX — TAP';
                 gpsStatus.className = 'status-indicator';
+                gpsStatus.title = denied
+                    ? 'Location was refused. Tap to ask again. If nothing happens, the browser is ' +
+                      'blocking it: iPhone → Settings → Privacy & Security → Location Services → ' +
+                      'Safari Websites → While Using, then reload.'
+                    : 'No position fix yet. Tap to retry.';
                 renderEmptyState();
                 console.warn('Geolocation error:', err && err.message);
             }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
@@ -2922,6 +2945,14 @@
         }
     }
 
+    function renderBuildStamp() {
+        const el = document.getElementById('setup-build');
+        if (!el) return;
+        const sw = ('serviceWorker' in navigator && navigator.serviceWorker.controller)
+            ? 'offline cache active' : 'no offline cache yet';
+        el.textContent = `build ${CONFIG.build} \u00b7 ${sw}`;
+    }
+
     function renderSetup() {
         const list = document.getElementById('setup-list');
         list.innerHTML = SERVICE_SLOTS.map(([id, label, get]) => `
@@ -2979,10 +3010,23 @@
 
     function registerSW() {
         if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
-        navigator.serviceWorker.register('sw.js').then(reg => {
+        // The build stamp rides along so the worker can name its caches after this
+        // deploy — and so a new build registers as a genuinely new script.
+        navigator.serviceWorker.register('sw.js?build=' + encodeURIComponent(CONFIG.build)).then(reg => {
             swReg = reg;
             askCacheStatus();
         }).catch(e => console.info('Service worker not registered:', e && e.message));
+
+        /* A new worker taking control means new code is available. Never reload out
+           from under someone who may be driving — offer it and let them choose. */
+        let reloading = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (reloading) return;
+            reloading = true;
+            toast('A newer version is ready — tap here to load it.', 15000);
+            els.toast.style.cursor = 'pointer';
+            els.toast.addEventListener('click', () => location.reload(), { once: true });
+        });
 
         navigator.serviceWorker.addEventListener('message', ev => {
             const m = ev.data || {};
@@ -3090,7 +3134,7 @@
         });
     }
 
-    function openSetup() { renderSetup(); askCacheStatus(); document.getElementById('setup-modal').classList.add('on'); }
+    function openSetup() { renderBuildStamp(); renderSetup(); askCacheStatus(); document.getElementById('setup-modal').classList.add('on'); }
     function closeSetup() { document.getElementById('setup-modal').classList.remove('on'); }
 
     document.getElementById('setup-close').addEventListener('click', closeSetup);
@@ -3261,7 +3305,7 @@
 
         const el = document.getElementById('selftest');
         el.classList.add('on');
-        el.innerHTML = `SELFTEST — ${pass} passed, ${fail} failed\n\n` + out.join('\n') +
+        el.innerHTML = `SELFTEST — ${pass} passed, ${fail} failed\nbuild ${CONFIG.build}\n\n` + out.join('\n') +
             `\n\nRotation plugin: ${ROTATION_AVAILABLE ? 'available' : 'NOT loaded — app stays north-up'}`;
         console.log(`selftest: ${pass} passed, ${fail} failed`);
         return { pass, fail };
@@ -3271,6 +3315,33 @@
        BOOT
        ======================================================================= */
     document.getElementById('btn-setup').addEventListener('click', openSetup);
+
+    /* The GPS chip is a button, not just a readout. Without this a refusal on iOS is
+       terminal: the chip reads DENIED for the rest of the shift with no way back. */
+    gpsStatus.style.cursor = 'pointer';
+    gpsStatus.title = 'Tap to (re)request location';
+    gpsStatus.addEventListener('click', () => startGeolocation(true, true));
+
+    /* Distinguish "never asked" from "blocked in browser settings" where the browser
+       will tell us — the fix for each is completely different, and a prompt that will
+       never appear should not be presented as one that might. */
+    if (navigator.permissions && navigator.permissions.query) {
+        navigator.permissions.query({ name: 'geolocation' }).then(st => {
+            const reflect = () => {
+                if (st.state !== 'denied' || lastFix) return;
+                gpsFailed = true;
+                gpsStatus.textContent = 'GPS: BLOCKED — TAP';
+                gpsStatus.className = 'status-indicator';
+                gpsStatus.title = 'Location is blocked for this site in your browser settings. ' +
+                    'iPhone → Settings → Privacy & Security → Location Services → Safari Websites → ' +
+                    'While Using, then reload. Tap to try again once changed.';
+                renderEmptyState();
+            };
+            reflect();
+            st.onchange = reflect;
+        }).catch(() => { /* Permissions API is optional; the error path already covers us */ });
+    }
+
     registerSW();
 
     loadPrefs();

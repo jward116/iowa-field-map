@@ -17,7 +17,10 @@
    caching them here would serve stale ownership without anyone realising.
    ===================================================================== */
 
-const VERSION     = 'v1';
+/* Cache names carry the build stamp, passed in by the page at registration time
+   (sw.js?build=...). A deploy therefore retires its predecessor's caches on its own
+   rather than depending on someone remembering to bump a constant here. */
+const VERSION     = new URL(self.location).searchParams.get('build') || 'v1';
 const SHELL_CACHE = `field-map-shell-${VERSION}`;
 const TILE_CACHE  = `field-map-tiles-${VERSION}`;
 
@@ -117,23 +120,49 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    // App shell: cache-first so a cold start with no signal still opens.
+    /* The page itself is NETWORK-FIRST, deliberately.
+
+       Cache-first on index.html is how a service worker pins a device to an old
+       build forever: the app keeps opening, looks perfectly healthy, and silently
+       never picks up a deploy again. That is a nastier version of the stale-Pages
+       failure this file was written after, because it would happen per-device with
+       nothing on the server to point at.
+
+       So when there is signal the newest page always wins, and the cache is the
+       fallback for when there is not — which is the actual job it was added for. */
+    const isPage = req.mode === 'navigate' ||
+                   /\/(index\.html)?(\?|$)/.test(new URL(url).pathname + new URL(url).search);
+
+    if (isPage) {
+        event.respondWith((async () => {
+            try {
+                const res = await fetch(req, { cache: 'no-cache' });
+                if (res && res.ok) {
+                    const cache = await caches.open(SHELL_CACHE);
+                    await cache.put('./index.html', res.clone());
+                }
+                return res;
+            } catch (e) {
+                const cached = (await caches.match(req)) || (await caches.match('./index.html'));
+                if (cached) return cached;
+                throw e;
+            }
+        })());
+        return;
+    }
+
+    // Libraries: cache-first is safe — they are version-pinned in the URL itself.
     event.respondWith((async () => {
         const cached = await caches.match(req);
         if (cached) return cached;
         try {
             const res = await fetch(req);
-            if (res && res.ok && SHELL.some(s => url.endsWith(s.replace('./', '')))) {
+            if (res && (res.ok || res.type === 'opaque') && SHELL.some(s => url.endsWith(s.replace('./', '')))) {
                 const cache = await caches.open(SHELL_CACHE);
                 await cache.put(req, res.clone());
             }
             return res;
         } catch (e) {
-            // A navigation with nothing cached still gets the app, not a browser error.
-            if (req.mode === 'navigate') {
-                const shell = await caches.match('./index.html');
-                if (shell) return shell;
-            }
             throw e;
         }
     })());
