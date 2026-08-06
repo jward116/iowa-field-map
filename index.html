@@ -22,7 +22,12 @@
             background: #000;
         }
 
-        /* ---------- Top UI overlay ---------- */
+        /* ---------- Top UI overlay ----------
+           The overlay is not a fixed height: the jurisdiction banner is always there,
+           the navigation strip appears only while routing, and the drive HUD only in
+           DRIVE. Leaflet's top-left and top-right controls are pushed down by whatever
+           it currently measures, via --ui-top (see syncUiTop). Hard-coding an offset
+           here is what buried the legend and the layer control behind the banner. */
         #ui-layer {
             position: absolute;
             top: 0;
@@ -30,6 +35,7 @@
             z-index: 1000;
             pointer-events: none;
         }
+        .leaflet-top { margin-top: var(--ui-top, 46px); }
         .header-panel {
             pointer-events: auto;
             background: rgba(15, 15, 15, 0.95);
@@ -88,6 +94,73 @@
             background: rgba(120, 120, 120, 0.15);
             color: #8a8a8a;
             border-color: #555;
+        }
+
+        /* ---------- Jurisdiction banner ----------
+           Full width directly under the header, in both MAP and DRIVE. The colour bar
+           on the left matches that county's fill on the map, so the banner and the
+           ground agree without anyone reading either. Large enough to answer "whose
+           county is this" from a glance, which on a stop is the whole point. */
+        #jurisdiction {
+            pointer-events: auto;
+            display: flex;
+            align-items: stretch;
+            background: rgba(15, 15, 15, 0.95);
+            border-bottom: 2px solid #333;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            min-height: 34px;
+        }
+        #juris-bar {
+            width: 10px;
+            flex: none;
+            background: #555;
+            transition: background 200ms linear;
+        }
+        #juris-body {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 5px 12px;
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+        #juris-county {
+            font-weight: 900;
+            font-size: 17px;
+            letter-spacing: 1px;
+            color: #8a8a8a;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        #juris-chips { display: flex; gap: 6px; flex: none; margin-left: auto; }
+        .juris-chip {
+            font-size: 11px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            padding: 3px 8px;
+            border-radius: 3px;
+            white-space: nowrap;
+            border: 1px solid;
+        }
+        .juris-chip.res {
+            background: rgba(255, 204, 0, 0.18);
+            color: #ffcc00;
+            border-color: #ffcc00;
+        }
+        .juris-chip.trust {
+            background: rgba(255, 153, 0, 0.18);
+            color: #ff9900;
+            border-color: #ff9900;
+        }
+        .juris-chip.esn {
+            background: rgba(0, 214, 178, 0.15);
+            color: #00d6b2;
+            border-color: #00d6b2;
+        }
+        @media (max-width: 600px) {
+            #juris-county { font-size: 15px; letter-spacing: 0.5px; }
+            .juris-chip { font-size: 10px; padding: 2px 6px; }
         }
 
         /* ---------- Bottom-left coordinate / hint readout ---------- */
@@ -343,7 +416,7 @@
         /* Position arrow. leaflet-rotate positions marker icons in the *unrotated*
            map pane and only spins the icon when rotateWithView is set — so this
            inner element's angle is a true screen angle in both orientations.
-           See updateArrow(). */
+           See updateVehicle(). */
         .drive-arrow-rot {
             width: 44px;
             height: 44px;
@@ -351,6 +424,14 @@
             will-change: transform;
         }
         .drive-arrow-rot svg { display: block; }
+        /* Light bar. Motion is what finds the vehicle on a busy map, so the two lamps
+           alternate rather than both pulsing together. */
+        .drive-arrow-rot .lb { animation: lightbar 1s steps(1, end) infinite; }
+        .drive-arrow-rot .lb-b { animation-delay: .5s; }
+        @keyframes lightbar {
+            0%, 49%  { opacity: 1; }
+            50%, 100% { opacity: 0.25; }
+        }
 
         /* Re-center button — Waze semantics: appears only once you've grabbed the
            map, disappears when follow-lock resumes. */
@@ -380,6 +461,9 @@
         @media (prefers-reduced-motion: reduce) {
             #recenter-btn { animation: none; }
             .drive-arrow-rot { transition: none; }
+            /* Hold both lamps lit rather than blinking — the car still reads as a
+               patrol car, it just stops flashing. */
+            .drive-arrow-rot .lb { animation: none; opacity: 1; }
         }
 
         /* ---------- Address feed (bottom sheet) ---------- */
@@ -579,31 +663,142 @@
         .sim-btns { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
         .sim-btns .feed-btn { height: 30px; padding: 0 9px; font-size: 10px; }
 
-        /* ---------- One-time safety acknowledgement ---------- */
-        #ack-modal {
+        /* ---------- Address search ----------
+           Full-screen on a phone: typing an address one-handed in a moving vehicle
+           needs the whole keyboard and big targets, not a dropdown under a header. */
+        #search-panel {
             display: none;
             position: absolute;
             inset: 0;
-            z-index: 1400;
-            background: rgba(0,0,0,0.86);
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
+            z-index: 1350;
+            background: rgba(8, 8, 8, 0.97);
+            flex-direction: column;
+            padding: 12px;
         }
-        #ack-modal.on { display: flex; }
-        #ack-box {
-            max-width: 420px;
-            background: #101010;
-            border: 1px solid #ffcc33;
-            border-radius: 5px;
-            padding: 18px 20px;
-            color: #ddd;
-            font-size: 13px;
-            line-height: 1.6;
+        #search-panel.on { display: flex; }
+        #search-bar { display: flex; gap: 8px; align-items: center; flex: none; }
+        #search-input {
+            flex: 1 1 auto;
+            min-width: 0;
+            box-sizing: border-box;
+            background: #060606;
+            color: #eaeaea;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 12px;
+            font: inherit;
+            font-size: 16px;   /* < 16px makes iOS zoom the viewport on focus */
         }
-        #ack-box h4 { margin: 0 0 8px; color: #ffcc33; font-size: 14px; letter-spacing: 1px; }
+        #search-input:focus { outline: none; border-color: #33ff77; }
+        #search-status {
+            flex: none;
+            padding: 8px 2px 4px;
+            font-size: 11px;
+            color: #8a8a8a;
+            letter-spacing: 0.5px;
+            min-height: 16px;
+        }
+        #search-results {
+            flex: 1 1 auto;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+        }
+        .search-row {
+            border-top: 1px solid #1e1e1e;
+            padding: 11px 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+        }
+        .search-row:hover { background: #141414; }
+        .search-main { flex: 1 1 auto; min-width: 0; }
+        .search-addr {
+            font-size: 17px;
+            font-weight: 800;
+            color: #eaeaea;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .search-sub { font-size: 11px; color: #8a8a8a; margin-top: 2px; }
+        .search-dist {
+            flex: none;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12px;
+            color: #ffcc33;
+        }
+        .search-co {
+            flex: none;
+            font-size: 10px;
+            font-weight: bold;
+            padding: 2px 6px;
+            border-radius: 3px;
+            border: 1px solid;
+        }
 
-        /* ---------- Setup / service check ---------- */
+        /* ---------- Navigation strip ----------
+           Sits directly under the jurisdiction banner whenever a route is active, in
+           both modes. The next manoeuvre is the largest thing on it because it is the
+           only part that has to be read while moving. */
+        #nav-strip {
+            display: none;
+            pointer-events: auto;
+            background: rgba(10, 20, 14, 0.96);
+            border-bottom: 2px solid #1c5c34;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            padding: 7px 12px;
+            align-items: center;
+            gap: 10px;
+        }
+        #nav-strip.on { display: flex; }
+        #nav-arrow { font-size: 22px; color: #33ff77; flex: none; line-height: 1; }
+        #nav-main { flex: 1 1 auto; min-width: 0; }
+        #nav-step {
+            font-size: 15px;
+            font-weight: 800;
+            color: #eaeaea;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        #nav-dest { font-size: 11px; color: #8a8a8a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #nav-eta {
+            flex: none;
+            text-align: right;
+            font-family: 'Consolas', 'Courier New', monospace;
+            color: #33ff77;
+            font-size: 13px;
+            line-height: 1.35;
+        }
+        #nav-eta small { display: block; color: #8a8a8a; font-size: 10px; }
+        #nav-cancel { flex: none; }
+        #nav-steps {
+            border-top: 1px solid #222;
+            max-height: 34vh;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .nav-step-row {
+            display: flex; gap: 10px; align-items: baseline;
+            padding: 9px 12px;
+            border-bottom: 1px solid #161616;
+            font-size: 13px;
+            color: #cfcfcf;
+        }
+        .nav-step-row.done { opacity: 0.35; }
+        .nav-step-row.next { background: rgba(51,255,119,0.07); color: #eaeaea; }
+        .nav-step-dist {
+            flex: none; width: 62px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12px; color: #ffcc33;
+        }
+        @media (max-width: 600px) {
+            #nav-step { font-size: 14px; }
+            .search-addr { font-size: 16px; }
+        }
+
         #setup-modal {
             display: none;
             position: absolute;
@@ -693,9 +888,26 @@
                 <button type="button" id="btn-drive" aria-pressed="false">DRIVE</button>
             </div>
             <div class="header-right">
+                <button type="button" class="hud-btn" id="btn-search" title="Search an address and route to it">&#128269; GO</button>
                 <div id="parcel-status" class="status-indicator searching">PARCELS: ZOOM IN</div>
                 <div id="gps-status" class="status-indicator">GPS: OFFLINE</div>
             </div>
+        </div>
+        <div id="jurisdiction">
+            <div id="juris-bar"></div>
+            <div id="juris-body">
+                <div id="juris-county">COUNTY &mdash;</div>
+                <div id="juris-chips"></div>
+            </div>
+        </div>
+        <div id="nav-strip">
+            <div id="nav-arrow">&#8593;</div>
+            <div id="nav-main">
+                <div id="nav-step">&mdash;</div>
+                <div id="nav-dest"></div>
+            </div>
+            <div id="nav-eta"><span id="nav-eta-time">--</span><small id="nav-eta-dist">--</small></div>
+            <button type="button" class="feed-btn danger" id="nav-cancel">END</button>
         </div>
         <div id="drive-hud">
             <div class="hud-row">
@@ -766,16 +978,16 @@
         <div id="sim-status" style="margin-top:8px;color:#ffcc33;font-size:10px"></div>
     </div></div>
 
-    <div id="ack-modal"><div id="ack-box">
-        <h4>PASSENGER USE &mdash; PULL OVER TO INTERACT</h4>
-        <p style="margin:0 0 10px">Drive mode logs addresses on its own. It needs no taps while moving, and each
-        address can be announced with a chime so you do not have to look at the screen.</p>
-        <p style="margin:0 0 14px">Do not read, scroll, or tap this screen while driving.</p>
-        <div class="sim-btns">
-            <button type="button" class="feed-btn" id="ack-ok">UNDERSTOOD</button>
-            <button type="button" class="feed-btn" id="ack-cancel">CANCEL</button>
+    <div id="search-panel">
+        <div id="search-bar">
+            <input type="text" id="search-input" autocomplete="off" autocorrect="off"
+                   autocapitalize="characters" spellcheck="false"
+                   placeholder="House number and street, or a street name">
+            <button type="button" class="feed-btn" id="search-close">CLOSE</button>
         </div>
-    </div></div>
+        <div id="search-status"></div>
+        <div id="search-results"></div>
+    </div>
 
     <div id="setup-modal"><div id="setup-box">
         <h4>SETUP &amp; SERVICE CHECK</h4>
@@ -818,41 +1030,70 @@
            This exists because "which build is actually on the phone?" was, for an
            hour, a question nobody could answer without reading header strings from
            memory — while GitHub Pages quietly served a build from four months back. */
-        build: '2026-08-06.5',
+        build: '2026-08-06.6',
 
         center: [39.9772, -95.2974],   // White Cloud, KS region
         zoom: 12,
         parcelMinZoom: 15,             // parcels only render when zoomed in (dense statewide layers)
 
-        // Reservation boundary — Census TIGERweb AIANNH. AIANNHCE 2430 = Iowa (KS-NE).
-        // MapServer sublayer 2 = federal reservations, 3 = off-reservation trust land.
+        /* Reservation boundary — Census TIGERweb AIANNHA, sublayer 2 = federal
+           reservations, 3 = off-reservation trust land.
+
+           The filter field is AIANNH. There is no AIANNHCE field on this layer, and a
+           query naming one returns HTTP 400 — which is why neither boundary drew.
+           Iowa (KS-NE) is AIANNH 1590; 2430 is the Navajo Nation. Verified:
+           .../AIANNHA/MapServer/2/query?where=AIANNH='1590' returns
+           "Iowa (KS-NE) Reservation", centroid +39.9949 / -095.3866. */
         reservation: {
             url:   'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/AIANNHA/MapServer/2',
-            where: "AIANNHCE = '2430'",
+            where: "AIANNH = '1590'",
             color: '#ffcc00'
         },
         trust: {
             url:   'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/AIANNHA/MapServer/3',
-            where: "AIANNHCE = '2430'",
+            where: "AIANNH = '1590'",
             color: '#ff9900'
         },
 
-        // Per-parcel OWNER records (public county assessor data).
+        /* Per-parcel records from the state parcel services.
+
+           Neither state publishes OWNER NAMES through an open endpoint — Kansas ORKA
+           exposes geometry plus the 19-digit KSPID, and Nebraska's statewide layer
+           carries situs, value, acres and legal description but no name. Owner is
+           public record at each county and reachable through the deep links in the
+           popup; ownerServices below is the slot for a licensed feed. */
         parcels: {
             ne: {
                 label: 'NE Parcels — Richardson Co.',
-                url:   'https://giscat.ne.gov/enterprise/rest/services/TaxParcels2023/FeatureServer/0',
+                url:   'https://giscat.ne.gov/enterprise/rest/services/StatewideParcelsExternal/FeatureServer/0',
                 color: '#00e5ff',
+                countyWhere: "County_ID = '147'",   // 147 = Richardson. Verified against live rows.
                 on:    true
             },
-            // Kansas statewide ownership is frequently license-restricted. Drop in the
-            // Brown/Doniphan County appraiser or the DASC service you're licensed for.
+            /* Kansas has no public parcel-polygon service covering this ground, and
+               that was checked rather than assumed: KS_Parcels_ORKA_EB is described as
+               statewide but returns only four county codes (CN, RA, SH, TH) across all
+               three of its layers — Doniphan and Brown are not among them. Doniphan's
+               own assessor service answers 499 Token Required.
+
+               This stays blank rather than pointing at a service that would report
+               "0 parcels" forever. Kansas house-level coverage comes from the NG911
+               address points below, which carry all 10,557 addresses in the two
+               counties. Paste a licensed county URL here in SETUP if you obtain one. */
             ks: {
                 label: 'KS Parcels — Brown/Doniphan Co.',
-                url:   '',              // e.g. 'https://gis.dasc.kansasgis.org/arcgis/rest/services/.../FeatureServer/0'
+                url:   '',
                 color: '#ffb000',
                 on:    true
             }
+        },
+
+        /* Licensed county owner feeds. Blank by default — the statewide services carry
+           no owner name. Paste a county appraiser FeatureServer URL in SETUP and owner
+           names appear inline in popups and the drive feed with no redeploy. */
+        ownerServices: {
+            ks: { label: 'KS county owner service', url: '', on: true },
+            ne: { label: 'NE county owner service', url: '', on: true }
         },
 
         // Optional NG911 / tribal address points. Drop a GeoJSON (or point the URL at
@@ -863,39 +1104,71 @@
             color: '#00ff00'
         },
 
-        /* Statewide NG911 address point SERVICES — point addresses queried live, the
-           same way parcels are. This is what gives the Kansas side of the reservation
-           any coverage at all: the NE parcel service stops at the state line and
-           Kansas statewide parcel ownership is license-restricted, but Kansas
-           publishes its NG911 address points for public use.
+        /* Statewide NG911 address point SERVICES — the authoritative house-level
+           addresses for all three counties, and what the address search geocodes
+           against. Both verified live: Kansas returns 4,320 Doniphan + 6,237 Brown
+           records; Nebraska returns Richardson County records with FULL_ADDR.
 
-           These endpoints could not be reached from the machine that wrote this file,
-           so treat them as best-known rather than confirmed — open SETUP and press
-           TEST to find out in a couple of seconds, and correct the URL right there if
-           it is wrong. No redeploy needed; the override is saved on the device. */
+           Kansas stores an address as NENA component fields (HNO/PRD/RD/STS) plus a
+           combined LABEL; Nebraska uses a different set again (ADD_NUM/ST_NAME/
+           FULL_ADDR). NENA_FIELDS below covers both — see the note there. */
         addressServices: {
             ks: {
                 label: 'KS NG911 — statewide address points',
                 url:   'https://services.kansasgis.org/arcgis4/rest/services/NG911/NG911_AddressPoints/MapServer/0',
+                countyWhere: "COUNTY IN ('DONIPHAN COUNTY','BROWN COUNTY')",
+                searchField: 'LABEL',
                 on:    true
             },
             ne: {
                 label: 'NE NG911 — statewide address points',
-                url:   '',              // not configured; add yours and press TEST
+                url:   'https://giscat.ne.gov/enterprise/rest/services/Address_Points/FeatureServer/0',
+                countyWhere: "COUNTY = 'Richardson County'",
+                searchField: 'FULL_ADDR',
                 on:    true
             }
         },
 
-        // County lines for the ground actually driven. GEOID = state FIPS + county FIPS.
+        /* County lines for the ground actually driven. GEOID = state FIPS + county FIPS.
+
+           Richardson NE is 31147. 31153 is Sarpy County, ninety miles up the river in
+           the Omaha metro — with that GEOID the whole Nebraska side of the reservation
+           had no county line at all. Verified against TIGERweb: BASENAME for 31147 is
+           "Richardson", for 31153 "Sarpy". */
         counties: {
             url:   'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/11',
-            where: "GEOID IN ('20043','20013','31153')",   // Doniphan KS, Brown KS, Richardson NE
+            where: "GEOID IN ('20043','20013','31147')",   // Doniphan KS, Brown KS, Richardson NE
             // TIGERweb sublayer schemas drift between vintages, so if GEOID is absent
             // the layer retries with the split state/county fields before giving up.
-            whereFallback: "(STATE='20' AND COUNTY IN ('043','013')) OR (STATE='31' AND COUNTY='153')",
-            color: '#8899aa',           // muted steel — must not read as reservation or trust land
+            whereFallback: "(STATE='20' AND COUNTY IN ('043','013')) OR (STATE='31' AND COUNTY='147')",
+            color: '#8899aa',           // stroke only; each county gets its own fill below
             labels: true,
             on:    true
+        },
+
+        /* ---------------- Jurisdiction shading ----------------
+           Which county you are standing in decides whose authority applies, so it is
+           answered on the map itself rather than by reading a line. Each county gets a
+           distinct tint and the header banner names the one your GPS fix is inside.
+           Fill stays light enough that roads and labels read through it. */
+        jurisdiction: {
+            fillOpacity: 0.12,
+            byGeoid: {
+                '20043': { name: 'DONIPHAN',   state: 'KS', color: '#ffb000' },   // amber
+                '20013': { name: 'BROWN',      state: 'KS', color: '#b57bff' },   // violet
+                '31147': { name: 'RICHARDSON', state: 'NE', color: '#00d6b2' }    // teal
+            }
+        },
+
+        /* ---------------- Routing ----------------
+           OSRM's public server, verified: White Cloud -> Falls City returns 33.1 km /
+           30.5 min with a full step list. Repoint this at your own OSRM instance in
+           SETUP if you stand one up; the request shape is identical. */
+        routing: {
+            url: 'https://router.project-osrm.org/route/v1/driving',
+            offRouteM: 50,          // m off the line before we start counting
+            offRouteFixes: 3,       // consecutive fixes past that before re-routing
+            rerouteMinMs: 15000     // floor between re-route requests
         },
 
         /* ---------------- Drive mode ---------------- */
@@ -941,14 +1214,32 @@
             parcelLimit:    1500
         },
 
-        sources: { ng911: true, parcelNe: true, parcelKs: true, addrKs: true, addrNe: true },
+        sources: { ng911: true, parcelNe: true, parcelKs: true, addrKs: true, addrNe: true,
+                   ownerKs: true, ownerNe: true },
+
+        /* ---------------- Address search ----------------
+           Geocoding runs against the same NG911 services the drive engine uses, scoped
+           to the three counties. That beats a general geocoder here: these are the
+           authoritative records for this ground, they carry the ESN and municipality,
+           and a hit is guaranteed to be somewhere you can actually be dispatched. */
+        search: {
+            minChars: 3,
+            limit: 25,
+            debounceMs: 300,
+            /* The Kansas NG911 service takes ~18 s to answer ANY attribute query —
+               measured against a bare COUNTY = 'DONIPHAN COUNTY' count, so it is the
+               service, not the predicate. (Its spatial queries are fast, which is why
+               the drive engine is unaffected.) A 12 s timeout silently turned every
+               Kansas search into "no match". Nebraska answers in well under a second,
+               and results render per-service as they arrive rather than waiting. */
+            timeoutMs: 30000
+        },
 
         storage: {
             // Set false if policy prefers the pass log NOT survive a reload.
             enabled: true,
             key: 'iowa-field-map.passlog.v1',
             prefsKey: 'iowa-field-map.prefs.v1',
-            ackKey: 'iowa-field-map.ack.v1',
             autosaveMs: 2000
         },
 
@@ -962,14 +1253,16 @@
     /* ---------------- Per-device service overrides ----------------
        Applied here, immediately after CONFIG and BEFORE any layer or source is
        built from it, so a URL corrected in the SETUP screen takes effect on the
-       next load without touching the code. Every endpoint in this file was
-       unreachable from the machine that wrote it, so being able to fix one in the
-       field — from the truck, with no redeploy — is not a nicety. */
+       next load without touching the code. A service that moves — and one of these
+       already has — is fixable from the truck without waiting on a deploy. */
     const SERVICE_SLOTS = [
         ['addr-ks',    'Kansas NG911 address points',   () => CONFIG.addressServices.ks.url, v => CONFIG.addressServices.ks.url = v, 'query'],
         ['addr-ne',    'Nebraska NG911 address points', () => CONFIG.addressServices.ne.url, v => CONFIG.addressServices.ne.url = v, 'query'],
-        ['parcel-ne',  'Nebraska parcels (owner)',      () => CONFIG.parcels.ne.url,         v => CONFIG.parcels.ne.url = v,         'query'],
-        ['parcel-ks',  'Kansas parcels (owner)',        () => CONFIG.parcels.ks.url,         v => CONFIG.parcels.ks.url = v,         'query'],
+        ['parcel-ne',  'Nebraska parcels',              () => CONFIG.parcels.ne.url,         v => CONFIG.parcels.ne.url = v,         'query'],
+        ['parcel-ks',  'Kansas parcels',                () => CONFIG.parcels.ks.url,         v => CONFIG.parcels.ks.url = v,         'query'],
+        ['owner-ks',   'Kansas owner service',          () => CONFIG.ownerServices.ks.url,   v => CONFIG.ownerServices.ks.url = v,   'query'],
+        ['owner-ne',   'Nebraska owner service',        () => CONFIG.ownerServices.ne.url,   v => CONFIG.ownerServices.ne.url = v,   'query'],
+        ['router',     'Routing engine (OSRM)',         () => CONFIG.routing.url,            v => CONFIG.routing.url = v,            'route'],
         ['counties',   'County lines',                  () => CONFIG.counties.url,           v => CONFIG.counties.url = v,           'query'],
         ['reservation','Reservation boundary',          () => CONFIG.reservation.url,        v => CONFIG.reservation.url = v,        'query'],
         ['trust',      'Off-reservation trust land',    () => CONFIG.trust.url,              v => CONFIG.trust.url = v,              'query'],
@@ -1009,8 +1302,7 @@
         hudAcc: document.getElementById('hud-acc'),
         hudCount: document.getElementById('hud-count'),
         hudSources: document.getElementById('hud-sources'),
-        toast: document.getElementById('toast'),
-        ack: document.getElementById('ack-modal')
+        toast: document.getElementById('toast')
     };
 
     /* =======================================================================
@@ -1137,6 +1429,47 @@
         }
     }
 
+    /* ---------------- Point in polygon ----------------
+       Answers "which county am I standing in" and "am I on the reservation" from
+       geometry already on the map, so both survive losing signal.
+
+       Ray casting on a ring of [lng, lat] pairs. The half-open vertex rule
+       (`(yi > y) !== (yj > y)`) is what stops a ray that passes exactly through a
+       shared vertex being counted twice — without it a fix sitting on the county
+       line reads as inside both counties or neither. */
+    function pointInRing(pt, ring) {
+        let inside = false;
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+            const xi = ring[i][0], yi = ring[i][1];
+            const xj = ring[j][0], yj = ring[j][1];
+            if ((yi > pt.lat) !== (yj > pt.lat) &&
+                pt.lng < (xj - xi) * (pt.lat - yi) / (yj - yi) + xi) {
+                inside = !inside;
+            }
+        }
+        return inside;
+    }
+
+    /* A GeoJSON Polygon is [outerRing, ...holes]; a MultiPolygon is a list of those.
+       Inside the outer ring but inside a hole is outside. */
+    function pointInPolygon(pt, geom) {
+        if (!pt || !geom || !geom.coordinates) return false;
+        const polys = geom.type === 'MultiPolygon' ? geom.coordinates
+                    : geom.type === 'Polygon' ? [geom.coordinates]
+                    : null;
+        if (!polys) return false;
+        for (const rings of polys) {
+            if (!rings || !rings.length) continue;
+            if (!pointInRing(pt, rings[0])) continue;
+            let inHole = false;
+            for (let h = 1; h < rings.length; h++) {
+                if (pointInRing(pt, rings[h])) { inHole = true; break; }
+            }
+            if (!inHole) return true;
+        }
+        return false;
+    }
+
     const CARDINALS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
     function cardinal(deg) { return CARDINALS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16]; }
     function mps2mph(v) { return v * 2.2369362920544; }
@@ -1182,14 +1515,14 @@
     const overlays = {};   // for the layer control
 
     /* ---------------- Reservation & trust boundaries ---------------- */
-    function addBoundary(cfg, dashed) {
+    function addBoundary(cfg, dashed, weight) {
         if (!cfg.url) return null;
         const lyr = L.esri.featureLayer({
             url: cfg.url,
             where: cfg.where,
             style: () => ({
                 color: cfg.color,
-                weight: 3,
+                weight: weight || 3,
                 fill: false,
                 dashArray: dashed ? '6,6' : null,
                 opacity: 0.95
@@ -1199,41 +1532,91 @@
         return lyr;
     }
 
-    const reservation = addBoundary(CONFIG.reservation, false);
-    if (reservation) { reservation.addTo(map); overlays['Reservation boundary'] = reservation; }
+    /* The reservation line is the one boundary that changes who has authority, so it
+       is drawn heavier than anything else on the map and its geometry is kept for the
+       ON RESERVATION test in the jurisdiction banner. */
+    let reservationGeom = null;
+    const reservation = addBoundary(CONFIG.reservation, false, 4);
+    if (reservation) {
+        reservation.addTo(map);
+        overlays['Reservation boundary'] = reservation;
+        reservation.on('createfeature', e => {
+            if (e.feature && e.feature.geometry) reservationGeom = e.feature.geometry;
+        });
+    }
+    let trustGeom = null;
     const trust = addBoundary(CONFIG.trust, true);
-    if (trust) { trust.addTo(map); overlays['Off-reservation trust land'] = trust; }
+    if (trust) {
+        trust.addTo(map);
+        overlays['Off-reservation trust land'] = trust;
+        trust.on('createfeature', e => {
+            if (e.feature && e.feature.geometry) trustGeom = e.feature.geometry;
+        });
+    }
 
-    /* ---------------- County lines ----------------
-       Which county you are in decides which assessor record applies, so this stays
-       visible in DRIVE mode too — three polygons cost nothing. Styled muted steel so
-       it never reads as the reservation boundary or trust land. */
+    /* ---------------- Counties: lines, shading, and jurisdiction ----------------
+       Which county you are in decides whose authority applies and which assessor
+       record is the right one, so it stays visible in DRIVE mode too — three polygons
+       cost nothing.
+
+       Each county carries its own tint rather than one shared steel line. At a glance
+       from arm's length, on a phone in a windscreen mount, colour reads before a label
+       does. Fill is held at 12% so the road network stays legible through it; the
+       stroke stays muted so neither can be mistaken for the reservation line. */
     let counties = null;
+    const countyPolys = [];        // {geoid, name, state, color, geometry} for point-in-polygon
+
+    function countyStyleFor(props) {
+        const geoid = props && (props.GEOID || props.geoid);
+        return (geoid && CONFIG.jurisdiction.byGeoid[geoid]) || null;
+    }
+
     function addCounties() {
         const cfg = CONFIG.counties;
         if (!cfg.url) return null;
         if (counties) { map.removeLayer(counties); delete overlays['County lines']; counties = null; }
+        countyPolys.length = 0;
 
         let usedFallback = false;
         const lyr = L.esri.featureLayer({
             url: cfg.url,
             where: cfg.where,
-            style: () => ({ color: cfg.color, weight: 1.5, fill: false, opacity: 0.9 })
+            style: f => {
+                const j = countyStyleFor(f && f.properties);
+                return {
+                    color: cfg.color,
+                    weight: 1.5,
+                    opacity: 0.9,
+                    fill: !!j,
+                    fillColor: j ? j.color : cfg.color,
+                    fillOpacity: j ? CONFIG.jurisdiction.fillOpacity : 0
+                };
+            }
         });
 
-        if (cfg.labels) {
-            lyr.on('createfeature', e => {
-                const f = e.feature;
-                const name = (f && f.properties &&
-                    (f.properties.BASENAME || f.properties.NAME || f.properties.basename || f.properties.name));
-                if (!name) return;
+        lyr.on('createfeature', e => {
+            const f = e.feature;
+            if (!f || !f.properties) return;
+            const props = f.properties;
+            const geoid = props.GEOID || props.geoid ||
+                ((props.STATE || '') + (props.COUNTY || ''));       // whereFallback path
+            const j = CONFIG.jurisdiction.byGeoid[geoid];
+            const name = props.BASENAME || props.NAME || props.basename || props.name;
+
+            if (f.geometry && j) {
+                countyPolys.push({ geoid, name: j.name, state: j.state,
+                                   color: j.color, geometry: f.geometry });
+                updateJurisdiction(lastFix);   // a fix may already have arrived
+            }
+
+            if (cfg.labels && name) {
                 const layer = lyr.getFeature(f.id);
                 if (layer && layer.bindTooltip) {
                     layer.bindTooltip(String(name).toUpperCase() + ' CO',
                         { permanent: true, direction: 'center', className: 'county-label', opacity: 1 });
                 }
-            });
-        }
+            }
+        });
 
         /* TIGERweb sublayer schemas drift between vintages. If GEOID isn't there the
            query 400s, so retry once with the split STATE/COUNTY fields before
@@ -1261,17 +1644,36 @@
        The keyword lists are hoisted to constants so the drive-mode address engine
        extracts situs/owner with exactly the rules the popups use — one source of
        truth for "what counts as the address". */
-    const SITUS_KEYS = ['situs', 'prop_addr', 'propaddr', 'site_addr', 'location', 'address', 'saddr'];
+    /* 'location' is deliberately absent. Nebraska's parcel layer has a Location field
+       holding a one- or two-digit classification code, and matching it produced
+       parcels labelled "03" where an address belongs — a wrong address is worse than
+       a missing one on a response. */
+    const SITUS_KEYS = ['situs', 'prop_addr', 'propaddr', 'site_addr', 'address', 'saddr'];
     const OWNER_KEYS = ['owner', 'ownernam', 'taxpayer', 'deedhold'];
 
+    /* Substring matching earns its keep across differing county schemas, but it also
+       matches things it shouldn't: 'owner' hits Nebraska's Ownership_Type, which is a
+       classification code, and would print a code where a name belongs. Anything that
+       is a category rather than a value is excluded outright. */
+    const KEY_EXCLUDE = ['ownership_type', 'owner_type', 'ownertype', 'address_type', 'addrtype'];
+
+    /* Exact match wins over substring. Object.keys order otherwise decides which field
+       answers a query, so on a schema with Total_Assessed_Value, Land_Value and
+       Ag_Land_Value the "value" row was whichever the server happened to list first. */
     function pick(props, keywords) {
-        for (const key of Object.keys(props)) {
-            const kl = key.toLowerCase();
-            if (keywords.some(w => kl.includes(w))) {
-                const v = props[key];
-                if (v !== null && v !== undefined && String(v).trim() !== '') {
-                    return { field: key, value: v };
-                }
+        const keys = Object.keys(props).filter(k => !KEY_EXCLUDE.includes(k.toLowerCase()));
+        const usable = key => {
+            const v = props[key];
+            return v !== null && v !== undefined && String(v).trim() !== '';
+        };
+        for (const w of keywords) {
+            for (const key of keys) {
+                if (key.toLowerCase() === w && usable(key)) return { field: key, value: props[key] };
+            }
+        }
+        for (const w of keywords) {
+            for (const key of keys) {
+                if (key.toLowerCase().includes(w) && usable(key)) return { field: key, value: props[key] };
             }
         }
         return null;
@@ -1286,13 +1688,70 @@
         if (isMoney && typeof hit.value === 'number') val = '$' + hit.value.toLocaleString();
         return `<tr><td class="k">${esc(label)}</td><td class="v">${esc(val)}</td></tr>`;
     }
-    function buildParcelPopup(props, stateLabel) {
+    /* ---------------- County record lookups ----------------
+       Owner names are public record at each county but are not published through any
+       open endpoint: Kansas ORKA serves geometry and the KSPID only, Nebraska's
+       statewide layer carries no name field, and Doniphan County's own assessor
+       service answers 499 Token Required. So the map carries every field that IS
+       machine-readable and hands off to the county's own search for the name.
+
+       Each of these was checked and answers 200. None accepts a parcel ID in the
+       query string — ORKA hands out session URLs — so the ID is copied to the
+       clipboard on the way out and can be pasted straight into the county's search
+       box. That is one paste, and it is honest about what it is doing. */
+    const COUNTY_LOOKUPS = {
+        DONIPHAN:   { label: 'Doniphan Co. GIS',   url: 'https://doniphangis.integritygis.com/H5/Index.html' },
+        BROWN:      { label: 'Kansas ORKA',        url: 'https://www.kansasgis.org/orka/' },
+        RICHARDSON: { label: 'NE Assessors Online', url: 'https://www.nebraskaassessorsonline.us/' }
+    };
+
+    /* Which county a record belongs to: its own attributes first, then the county
+       polygon it falls inside, then whichever county the vehicle is in. */
+    function lookupFor(props, pt) {
+        const named = getField(props, NENA_FIELDS.county);
+        if (named) {
+            const up = named.toUpperCase();
+            for (const k of Object.keys(COUNTY_LOOKUPS)) if (up.indexOf(k) === 0) return COUNTY_LOOKUPS[k];
+        }
+        const inPoly = pt ? countyAt(pt) : null;
+        if (inPoly && COUNTY_LOOKUPS[inPoly.name]) return COUNTY_LOOKUPS[inPoly.name];
+        if (currentCounty && COUNTY_LOOKUPS[currentCounty.name]) return COUNTY_LOOKUPS[currentCounty.name];
+        return null;
+    }
+
+    // Delegated so popup buttons work without re-binding on every popup open.
+    document.addEventListener('click', e => {
+        const btn = e.target && e.target.closest && e.target.closest('.county-record-btn');
+        if (!btn) return;
+        e.preventDefault();
+        const id = btn.dataset.pid || '';
+        const go = () => window.open(btn.dataset.url, '_blank', 'noopener');
+        if (id && navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(id).then(
+                () => { toast('Copied ' + id + ' — paste into the county search'); go(); },
+                go
+            );
+        } else { go(); }
+    });
+
+    function countyRecordButton(props, pt) {
+        const lk = lookupFor(props, pt);
+        if (!lk) return '';
+        const pidHit = pick(props, ['kspid', 'state_pid', 'parcel_id', 'parcel', 'pin', 'pid', 'gisid', 'apn']);
+        const pid = pidHit ? String(pidHit.value).trim() : '';
+        return `<button type="button" class="feed-btn county-record-btn" ` +
+               `data-url="${esc(lk.url)}" data-pid="${esc(pid)}">` +
+               `OWNER RECORD &mdash; ${esc(lk.label)}${pid ? ' &middot; copies ID' : ''}</button>`;
+    }
+
+    function buildParcelPopup(props, stateLabel, pt) {
         const owner  = pick(props, OWNER_KEYS);
         const situs  = pick(props, SITUS_KEYS);
-        const pid    = pick(props, ['parcel', 'pin', 'pid', 'gisid', 'apn']);
+        const pid    = pick(props, ['kspid', 'state_pid', 'parcel_id', 'parcel', 'pin', 'pid', 'gisid', 'apn']);
         const acres  = pick(props, ['acre', 'gis_acre', 'deed_acre']);
         const value  = pick(props, ['total_val', 'totalval', 'assess', 'market', 'apprais', 'value']);
         const use    = pick(props, ['landuse', 'land_use', 'use_desc', 'class', 'property_c']);
+        const legal  = pick(props, ['legal_desc', 'legal', 'legaldesc']);
 
         let html = `<div class="parcel-popup"><h4>PARCEL &mdash; ${esc(stateLabel)}</h4><table>`;
         html += row('Owner', owner);
@@ -1301,40 +1760,114 @@
         html += row('Acres', acres);
         html += row('Assessed', value, true);
         html += row('Land use', use);
+        html += row('Legal', legal);
         html += '</table>';
 
+        html += countyRecordButton(props, pt);
+
         // full attribute dump for anything we didn't surface
-        const shown = [owner, situs, pid, acres, value, use].filter(Boolean).map(h => h.field);
+        const shown = [owner, situs, pid, acres, value, use, legal].filter(Boolean).map(h => h.field);
         const rest = Object.keys(props).filter(k => !shown.includes(k) && props[k] !== null && String(props[k]).trim() !== '');
         if (rest.length) {
             html += '<details><summary>All attributes</summary><table>';
             rest.forEach(k => { html += `<tr><td class="k">${esc(k)}</td><td class="v">${esc(fmt(props[k]))}</td></tr>`; });
             html += '</table></details>';
         }
-        html += '<div class="src">Public county assessor record &middot; verify trust/fee status against BIA LTRO</div>';
         html += '</div>';
         return html;
     }
 
+    /* Address-point record. Separate from the parcel popup because the useful fields
+       are different ones: which fire/EMS district (ESN), which apartment, what kind of
+       structure — the things that change how you arrive. */
+    function buildAddressPopup(props, pt) {
+        const rec = addressRecord(props);
+        let html = '<div class="parcel-popup"><h4>ADDRESS POINT</h4>';
+        if (rec) {
+            html += `<div style="font-size:16px;font-weight:800;color:#eaeaea;margin-bottom:2px">${esc(rec.line1)}</div>`;
+            if (rec.unit) html += `<div style="font-size:13px;color:#ffcc33;font-weight:700">${esc(rec.unit)}</div>`;
+            const tail = [rec.city, [rec.state, rec.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+            if (tail) html += `<div style="font-size:11px;color:#8a8a8a;margin-bottom:6px">${esc(tail)}</div>`;
+        }
+        html += '<table>';
+        if (rec) {
+            if (rec.county)    html += `<tr><td class="k">County</td><td class="v">${esc(rec.county)}</td></tr>`;
+            if (rec.esn)       html += `<tr><td class="k">ESN</td><td class="v">${esc(rec.esn)}</td></tr>`;
+            if (rec.landmark)  html += `<tr><td class="k">Landmark</td><td class="v">${esc(rec.landmark)}</td></tr>`;
+            if (rec.placeType) html += `<tr><td class="k">Type</td><td class="v">${esc(rec.placeType)}</td></tr>`;
+        }
+        html += '</table>';
+        html += countyRecordButton(props, pt);
+        const rest = Object.keys(props).filter(k =>
+            props[k] !== null && String(props[k]).trim() !== '' && String(props[k]).trim() !== '0');
+        if (rest.length) {
+            html += '<details><summary>All attributes</summary><table>';
+            rest.forEach(k => { html += `<tr><td class="k">${esc(k)}</td><td class="v">${esc(fmt(props[k]))}</td></tr>`; });
+            html += '</table></details>';
+        }
+        return html + '</div>';
+    }
+
     /* ---------------- NENA / NG911 component addresses ----------------
-       State NG911 datasets (Kansas DASC included) follow the NENA data model,
-       which stores an address as SEPARATE FIELDS — ADDNUM, PRD, STREETNAME, STS
-       — and usually has no single combined field at all. Run those records
-       through the situs keyword matcher and every address comes back blank,
-       which is why they are assembled explicitly here.
+       State NG911 datasets follow the NENA data model, which stores an address as
+       SEPARATE FIELDS rather than one string. Run those records through the situs
+       keyword matcher and every address comes back blank, which is why they are
+       assembled explicitly here.
+
+       The two states in scope do NOT use the same names, and that is not cosmetic:
+
+         Kansas    HNO  HNS  PRD  STP  RD       STS      POD    LABEL
+         Nebraska  ADD_NUM  ADD_NUM_SUF  PRE_DIR  PRE_TYPE  ST_NAME  ST_TYPE  POS_DIR  FULL_ADDR
+
+       Nebraska's names were absent from these lists. FULL_ADDR is not 'fulladdr' and
+       ADD_NUM is not 'addnum', so every Nebraska record fell through to component
+       assembly, failed to find a house number, and rendered as bare street name —
+       '1107 Harlan Street' logged as 'Harlan Street'. A house number is the entire
+       point of the record on a response. Both dialects are covered now, and
+       ?selftest=1 asserts a real record shape from each state.
 
        Matching is EXACT (case-insensitively), not substring: a keyword match on
        'rd' would hit RECORD and WARD, and 'address' would hit almost anything. */
     const NENA_FIELDS = {
-        full:    ['fulladdr', 'full_address', 'addrlabel', 'label', 'address', 'fulladdress'],
-        num:     ['addnum', 'address_number', 'addressnum', 'add_number', 'addr_num', 'hno', 'housenum', 'house_number'],
-        numsuf:  ['addnumsuf', 'addnum_suf', 'address_number_suffix', 'hnosuf'],
-        predir:  ['prd', 'predir', 'pre_dir', 'st_predir', 'streetpred', 'prefixdir'],
-        pretype: ['pretype', 'st_pretyp', 'pretypesep'],
-        name:    ['streetname', 'street_name', 'stname', 'st_name', 'roadname', 'road_name', 'rd', 'road'],
-        type:    ['sts', 'streettype', 'street_type', 'sttype', 'st_type', 'suftype', 'postype', 'suffix'],
-        posdir:  ['pod', 'sufdir', 'suf_dir', 'postdir', 'st_posdir', 'streetposd']
+        /* Street-only combined fields come FIRST. Nebraska's parcel layer carries both
+           Situs_Address ("70919 652 AVE") and Ph_Full_Address ("70919 652 AVE, FALLS
+           CITY, NE 68355"); taking the fuller one as the street line then appending
+           city and ZIP again produced "…NE 68355, FALLS CITY, 68355". line1 is the
+           street line, and only the street line. */
+        full:    ['situs_address', 'fulladdr', 'full_addr', 'full_address', 'fulladdress',
+                  'addrlabel', 'label', 'address', 'ph_full_address'],
+        num:     ['addnum', 'add_num', 'address_number', 'addressnum', 'add_number', 'addr_num', 'hno',
+                  'housenum', 'house_number', 'ph_rd_num'],
+        numsuf:  ['addnumsuf', 'add_num_suf', 'addnum_suf', 'address_number_suffix', 'hnosuf', 'hns'],
+        predir:  ['prd', 'predir', 'pre_dir', 'st_predir', 'streetpred', 'prefixdir', 'ph_pre_dir'],
+        pretype: ['pretype', 'pre_type', 'stp', 'st_pretyp', 'pretypesep'],
+        name:    ['streetname', 'street_name', 'stname', 'st_name', 'roadname', 'road_name', 'rd', 'road',
+                  'ph_rd_name'],
+        type:    ['sts', 'streettype', 'street_type', 'sttype', 'st_type', 'suftype', 'postype', 'suffix',
+                  'ph_rd_type'],
+        posdir:  ['pod', 'pos_dir', 'sufdir', 'suf_dir', 'postdir', 'st_posdir', 'streetposd', 'ph_suf_dir'],
+
+        // Context fields. A bare house number and street is ambiguous across three
+        // counties — '100 Chestnut St' exists in both White Cloud and Troy.
+        city:    ['muni', 'inc_com', 'uninc_com', 'postco', 'postal_com', 'msagco', 'msag_com', 'city', 'ph_city'],
+        postal:  ['postco', 'postal_com', 'msagco', 'msag_com'],
+        // No bare 'st': a two-character exact match collides with too many schemas,
+        // and a wrong state on a label is worse than none.
+        state:   ['state', 'ph_state'],
+        zip:     ['zip', 'zip5', 'zipcode', 'postalcode', 'ph_zip5'],
+        county:  ['county', 'countyname', 'county_name'],
+        unit:    ['unit', 'apt', 'ph_unit'],
+        building:['bld', 'building'],
+        floor:   ['flr', 'floor'],
+        room:    ['room'],
+        landmark:['lmk', 'landmark'],
+        esn:     ['esn'],
+        loctype: ['loctype', 'placement', 'place_type', 'plc'],
+        placetype:['plc', 'place_type', 'placetype']
     };
+
+    // Placeholder values these datasets use for "no incorporated place".
+    const CITY_PLACEHOLDERS = ['unincorporated', 'uninc', 'none', 'n/a', 'null'];
 
     // Exact, case-insensitive field lookup. Returns a trimmed string or null.
     function getField(props, names) {
@@ -1372,18 +1905,97 @@
         return parts.length ? parts.join(' ') : null;
     }
 
-    /* Address / owner from an arbitrary properties bag. Extracted from the
-       address-point loader so the NG911 map layer and the drive engine always
-       agree on what "the address" is for a given record. */
-    function addrFromProps(p) {
+    /* ---------------- Structured address record ----------------
+       One parse, used by the map layer, the drive feed, the popups and the search
+       results, so a house cannot be labelled one way in the feed and another in the
+       record you open from it.
+
+       `line1` is the street line and stays short — it is what shows in large type at
+       speed. Everything else is context for the record view and for telling apart the
+       two 100 Chestnut Streets that exist in this coverage area. */
+    function addressRecord(p) {
         if (!p) return null;
+
+        // Street line: an explicit combined field wins, then NENA components, then
+        // whatever the parcel schema calls its situs.
+        let line1 = null;
         const direct = p.address || p.full_address || p.label ||
             [p.number, p.street].filter(Boolean).join(' ');
-        if (direct && String(direct).trim()) return String(direct).trim();
-        const nena = addrFromNena(p);         // component-style NG911 records
-        if (nena) return nena;
-        const hit = pick(p, SITUS_KEYS);
-        return hit ? String(hit.value).trim() : null;
+        if (direct && String(direct).trim()) line1 = String(direct).trim();
+        if (!line1) line1 = addrFromNena(p);
+        if (!line1) {
+            const hit = pick(p, SITUS_KEYS);
+            if (hit) line1 = String(hit.value).trim();
+        }
+        if (!line1) return null;
+
+        // City: prefer the incorporated place, but these datasets write
+        // 'UNINCORPORATED' as a value rather than leaving it blank, and that is not a
+        // place you can be sent to. Fall back to the postal / MSAG community.
+        let city = getField(p, NENA_FIELDS.city);
+        if (city && CITY_PLACEHOLDERS.includes(city.toLowerCase())) {
+            city = getField(p, NENA_FIELDS.postal);
+            if (city && CITY_PLACEHOLDERS.includes(city.toLowerCase())) city = null;
+        }
+
+        const county = getField(p, NENA_FIELDS.county);
+        let state = getField(p, NENA_FIELDS.state);
+        // Infer the state from the county when the record doesn't carry one.
+        if (!state && county) {
+            const c = county.toUpperCase();
+            if (c.indexOf('RICHARDSON') === 0) state = 'NE';
+            else if (c.indexOf('DONIPHAN') === 0 || c.indexOf('BROWN') === 0) state = 'KS';
+        }
+        if (state && state.length > 2) state = state.slice(0, 2).toUpperCase();
+
+        // Sub-address. Which apartment matters more on a call than the assessed value.
+        const unit = [
+            getField(p, NENA_FIELDS.building) ? 'BLDG ' + getField(p, NENA_FIELDS.building) : null,
+            getField(p, NENA_FIELDS.floor) ? 'FL ' + getField(p, NENA_FIELDS.floor) : null,
+            getField(p, NENA_FIELDS.unit) ? 'UNIT ' + getField(p, NENA_FIELDS.unit) : null,
+            getField(p, NENA_FIELDS.room) ? 'RM ' + getField(p, NENA_FIELDS.room) : null
+        ].filter(Boolean).join(' ') || null;
+
+        return {
+            line1,
+            unit,
+            city: city || null,
+            state: state || null,
+            zip: getField(p, NENA_FIELDS.zip),
+            county: county || null,
+            esn: getField(p, NENA_FIELDS.esn),
+            landmark: getField(p, NENA_FIELDS.landmark),
+            placeType: getField(p, NENA_FIELDS.placetype)
+        };
+    }
+
+    /* "1107 Harlan Street, FALLS CITY, NE 68355" — the full label for a record view.
+       A component already spelled out in the street line is not repeated: some schemas
+       only publish a fully-qualified address and there is no reliable way to know that
+       in advance, so it is checked here rather than assumed away. */
+    function formatAddress(rec) {
+        if (!rec) return null;
+        const head = [rec.line1, rec.unit].filter(Boolean).join(' ');
+        /* Whole words only. A plain substring test drops the state from
+           "1107 PINE STREET, FALLS CITY, NE" because PINE contains NE. */
+        const words = new Set(head.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean));
+        const has = v => {
+            if (!v) return false;
+            const parts = String(v).toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+            return parts.length > 0 && parts.every(w => words.has(w));
+        };
+        const tail = [
+            has(rec.city) ? null : rec.city,
+            [has(rec.state) ? null : rec.state, has(rec.zip) ? null : rec.zip].filter(Boolean).join(' ')
+        ].filter(Boolean).join(', ');
+        return head + (tail ? ', ' + tail : '');
+    }
+
+    /* The street line only. Kept as the name the rest of the file already calls, so
+       every existing call site gets the corrected parse without changing. */
+    function addrFromProps(p) {
+        const rec = addressRecord(p);
+        return rec ? rec.line1 : null;
     }
     function ownerFromProps(p) {
         if (!p) return null;
@@ -1401,7 +2013,8 @@
             precision: 6,
             style: () => ({ color: cfg.color, weight: 1, fillOpacity: 0.06, fillColor: cfg.color })
         });
-        lyr.bindPopup(l => buildParcelPopup(l.feature.properties, stateLabel));
+        lyr.bindPopup(l => buildParcelPopup(l.feature.properties, stateLabel,
+                                           centroidOf(l.feature.geometry)));
         lyr.on('mouseover', e => e.layer.setStyle({ weight: 2.5, fillOpacity: 0.15 }));
         lyr.on('mouseout',  e => lyr.resetStyle(e.layer));
         lyr.on('requesterror', e => console.warn('Parcel layer error:', cfg.url, e && e.message));
@@ -1434,17 +2047,7 @@
                     fillColor: CONFIG.addressPoints.color, fillOpacity: 0.9
                 }),
                 onEachFeature: (f, layer) => {
-                    const p = f.properties || {};
-                    const addr = addrFromProps(p);
-                    let html = '<div class="parcel-popup"><h4>ADDRESS POINT</h4><table>';
-                    if (addr) html += `<tr><td class="k">Address</td><td class="v">${esc(addr)}</td></tr>`;
-                    Object.keys(p).forEach(k => {
-                        if (['address','full_address','label','number','street'].includes(k)) return;
-                        if (p[k] === null || String(p[k]).trim() === '') return;
-                        html += `<tr><td class="k">${esc(k)}</td><td class="v">${esc(p[k])}</td></tr>`;
-                    });
-                    html += '</table></div>';
-                    layer.bindPopup(html);
+                    layer.bindPopup(buildAddressPopup(f.properties || {}, centroidOf(f.geometry)));
                 }
             });
             overlays[CONFIG.addressPoints.label] = pts;
@@ -1516,10 +2119,14 @@
             d.innerHTML =
                 `<div><span class="line" style="border-color:${CONFIG.reservation.color}"></span>Reservation boundary</div>` +
                 `<div><span class="line" style="border-color:${CONFIG.trust.color};border-top-style:dashed"></span>Trust land</div>` +
-                `<div><span class="swatch" style="background:${CONFIG.parcels.ne.color}"></span>NE parcels (owner on tap)</div>` +
-                `<div><span class="swatch" style="background:${CONFIG.parcels.ks.color}"></span>KS parcels (configure)</div>` +
-                `<div><span class="swatch" style="background:${CONFIG.addressPoints.color}"></span>Address points</div>` +
-                `<div><span class="line" style="border-color:${CONFIG.counties.color}"></span>County lines</div>`;
+                // County tints first — they are the layer read most often at speed.
+                Object.keys(CONFIG.jurisdiction.byGeoid).map(g => {
+                    const j = CONFIG.jurisdiction.byGeoid[g];
+                    return `<div><span class="swatch" style="background:${j.color}"></span>${j.name} Co, ${j.state}</div>`;
+                }).join('') +
+                `<div><span class="swatch" style="background:${CONFIG.parcels.ne.color}"></span>NE parcels</div>` +
+                `<div><span class="swatch" style="background:${CONFIG.parcels.ks.color}"></span>KS parcels</div>` +
+                `<div><span class="swatch" style="background:${CONFIG.addressPoints.color}"></span>Address points</div>`;
             return d;
         }
     });
@@ -1553,6 +2160,59 @@
     }
     map.on('zoomend', updateParcelStatus);
     updateParcelStatus();
+
+    /* ---------------- Jurisdiction banner ----------------
+       Answered from your GPS fix against the county polygons already loaded, not from
+       the map centre — the two differ the moment you pan, and the wrong one on a stop
+       is worse than none. Pure geometry, so it keeps working with no signal.
+
+       Held state is exported so the drive feed and parcel popups can tag a record with
+       the county it actually fell in rather than re-testing per row. */
+    const jurisEls = {
+        bar: document.getElementById('juris-bar'),
+        county: document.getElementById('juris-county'),
+        chips: document.getElementById('juris-chips')
+    };
+    let currentCounty = null, onReservation = false, onTrust = false;
+
+    function countyAt(pt) {
+        if (!pt) return null;
+        for (const c of countyPolys) if (pointInPolygon(pt, c.geometry)) return c;
+        return null;
+    }
+
+    function updateJurisdiction(fix) {
+        const pt = fix ? toLL(fix.latlng || fix) : null;
+        const c = countyAt(pt);
+        const res = !!(pt && reservationGeom && pointInPolygon(pt, reservationGeom));
+        const tr = !!(pt && trustGeom && pointInPolygon(pt, trustGeom));
+
+        // Nothing changed — skip the DOM write. This runs on every fix.
+        const same = (c ? c.geoid : null) === (currentCounty ? currentCounty.geoid : null) &&
+                     res === onReservation && tr === onTrust;
+        if (same) return;
+        currentCounty = c; onReservation = res; onTrust = tr;
+
+        if (c) {
+            jurisEls.county.textContent = c.name + ' CO, ' + c.state;
+            jurisEls.county.style.color = c.color;
+            jurisEls.bar.style.background = c.color;
+        } else if (countyPolys.length) {
+            // Outside all three: real information, not a failure. You have left the map's ground.
+            jurisEls.county.textContent = pt ? 'OUTSIDE COVERAGE AREA' : 'COUNTY —';
+            jurisEls.county.style.color = '#8a8a8a';
+            jurisEls.bar.style.background = '#555';
+        } else {
+            jurisEls.county.textContent = 'COUNTY —';
+            jurisEls.county.style.color = '#8a8a8a';
+            jurisEls.bar.style.background = '#555';
+        }
+
+        let chips = '';
+        if (res) chips += '<span class="juris-chip res">ON RESERVATION</span>';
+        if (tr)  chips += '<span class="juris-chip trust">TRUST LAND</span>';
+        jurisEls.chips.innerHTML = chips;
+    }
 
     /* =======================================================================
        LIVE GPS
@@ -1656,6 +2316,7 @@
         if (hdg != null) lastHeading = hdg;
 
         updateGpsUi(f);
+        updateJurisdiction(f);      // county / reservation state, in both modes
 
         // The engine runs in BOTH modes and regardless of follow-lock. Tying address
         // logging to the camera would silently stop the feed the moment you pan.
@@ -1664,9 +2325,11 @@
         const hits = scanPass(prevFix ? prevFix.latlng : null, f.latlng);
         for (const h of hits) logPass(h.c, f, h.d);
 
+        updateRouteProgress(f);     // no-op unless a route is active
+
         if (MODE === 'drive') {
             applyDriveCamera(f);
-            updateArrow(f);
+            updateVehicle(f);
             updateHud(f);
         }
     }
@@ -1971,12 +2634,16 @@
     /* One ArcGIS query. Tries .nearby() (geometry + distance + units) and falls back
        to a bbox .within() for services that reject the distance parameter,
        remembering which shape worked per URL so discovery is paid for only once. */
-    function queryNear(url, center, radius) {
+    function queryNear(url, center, radius, where) {
         return new Promise((resolve, reject) => {
             const mode = queryModeByUrl[url] || 'nearby';
             const q = L.esri.query({ url })
                 .precision(5)                       // trims coordinate digits — real payload savings
                 .limit(CONFIG.engine.parcelLimit);
+            /* County scoping. These are statewide layers; without it a corridor query
+               near the state line drags in rows from counties this map does not cover
+               and pays for the payload. */
+            if (where) q.where(where);
 
             if (mode === 'nearby') {
                 q.nearby(L.latLng(center.lat, center.lng), radius);
@@ -1993,7 +2660,7 @@
                 if (error) {
                     if (mode === 'nearby' && !queryModeByUrl[url]) {
                         queryModeByUrl[url] = 'bbox';       // try the other geometry shape next
-                        return queryNear(url, center, radius).then(resolve, reject);
+                        return queryNear(url, center, radius, where).then(resolve, reject);
                     }
                     return reject(error);
                 }
@@ -2003,69 +2670,36 @@
         });
     }
 
-    function makeParcelSource(stateKey) {
-        const key = 'parcel-' + stateKey;
-        return async function (center, radius) {
-            const cfg = CONFIG.parcels[stateKey];
-            // A blank URL is a configuration state, not a failure. Never red.
-            if (!cfg.url) { setSourceState(key, 'off', 0, 'URL not set in CONFIG.parcels'); return []; }
+    /* ---------------- One ArcGIS source factory ----------------
+       Parcels and address points differed only in which config block they read, the
+       radius scale, and the wording of their status line — three parameters, not two
+       functions. Collapsing them means county scoping, the truncation retry, and the
+       "rows came back but nothing parsed" reporting are each implemented once, and a
+       new service (a licensed county owner feed) is one entry rather than a third
+       near-copy.
 
-            let r = radius * CONFIG.engine.parcelRadiusScale;
-            let res = await queryNear(cfg.url, center, r);
+       `spec.cfg` is a getter, not a value: SETUP writes URLs into CONFIG at runtime
+       and a captured value would pin the source to whatever was configured at load. */
+    function makeArcGisSource(spec) {
+        const key = spec.key;
+        return async function (center, radius) {
+            const cfg = spec.cfg();
+            // A blank URL is a configuration state, not a failure. Never red.
+            if (!cfg || !cfg.url) {
+                setSourceState(key, 'off', 0, 'URL not set — open SETUP to add one');
+                return [];
+            }
+
+            const r = radius * (spec.radiusScale || 1);
+            const where = cfg.countyWhere || null;
+            let res = await queryNear(cfg.url, center, r, where);
 
             // Truncated result: retry once smaller rather than silently under-reporting.
             let truncated = false;
             if (res.exceeded) {
                 truncated = true;
-                try { res = await queryNear(cfg.url, center, r * 0.6); }
+                try { res = await queryNear(cfg.url, center, r * 0.6, where); }
                 catch (e) { /* keep the first (truncated) result rather than losing everything */ }
-            }
-
-            const feats = (res.fc && res.fc.features) || [];
-            const out = [];
-            let noSitus = 0;
-            for (const f of feats) {
-                const props = f.properties || {};
-                const address = addrFromProps(props);
-                if (!address) { noSitus++; continue; }
-                const pt = centroidOf(f.geometry);
-                if (!pt) continue;
-                const oid = props.OBJECTID != null ? props.OBJECTID
-                          : (props.objectid != null ? props.objectid
-                          : (props.FID != null ? props.FID : f.id));
-                out.push({
-                    id: key + ':' + (oid != null ? oid : (pt.lat.toFixed(6) + ',' + pt.lng.toFixed(6))),
-                    lat: pt.lat, lng: pt.lng,
-                    address,
-                    owner: ownerFromProps(props),
-                    source: key,
-                    props
-                });
-            }
-            // Report the shortfall rather than showing an empty feed behind a green badge.
-            const detail = `${feats.length} parcels / ${out.length} with situs` + (noSitus ? ` (${noSitus} without)` : '');
-            if (truncated) setSourceState(key, 'partial', out.length, 'result truncated — ' + detail);
-            else setSourceState(key, out.length ? 'ok' : 'empty', out.length, detail);
-            return out;
-        };
-    }
-
-    /* Live NG911 address-point service (points, not polygons; no owner field).
-       Same query path as parcels, but these are the primary — often only — source of
-       house-level addresses on the Kansas side of the reservation. */
-    function makeAddressServiceSource(stateKey) {
-        const key = 'addr-' + stateKey;
-        return async function (center, radius) {
-            const cfg = CONFIG.addressServices[stateKey];
-            if (!cfg.url) { setSourceState(key, 'off', 0, 'URL not set — open SETUP to add one'); return []; }
-
-            let res = await queryNear(cfg.url, center, radius);
-
-            let truncated = false;
-            if (res.exceeded) {
-                truncated = true;
-                try { res = await queryNear(cfg.url, center, radius * 0.6); }
-                catch (e) { /* keep the truncated result rather than losing everything */ }
             }
 
             const feats = (res.fc && res.fc.features) || [];
@@ -2084,7 +2718,8 @@
                     id: key + ':' + (oid != null ? oid : (pt.lat.toFixed(6) + ',' + pt.lng.toFixed(6))),
                     lat: pt.lat, lng: pt.lng,
                     address,
-                    owner: null,               // NG911 address points carry no ownership
+                    // Statewide NG911 points carry no ownership; a county owner feed does.
+                    owner: spec.hasOwner ? ownerFromProps(props) : null,
                     source: key,
                     props
                 });
@@ -2092,32 +2727,475 @@
             /* If a service returns rows but none of them yield an address, the field
                names are wrong — not the road. Say so, because an empty feed and an
                unparsed schema look identical from the driver's seat. */
+            const noun = spec.noun || 'records';
             const detail = noAddr && !out.length
-                ? `${feats.length} records but no address fields recognised — check SETUP`
-                : `${feats.length} records / ${out.length} with an address`;
+                ? `${feats.length} ${noun} but no address fields recognised — check SETUP`
+                : `${feats.length} ${noun} / ${out.length} with an address` +
+                  (noAddr && out.length ? ` (${noAddr} without)` : '');
             if (truncated) setSourceState(key, 'partial', out.length, 'result truncated — ' + detail);
             else setSourceState(key, out.length ? 'ok' : 'empty', out.length, detail);
             return out;
         };
     }
 
+    /* Order is priority: on a tie the earlier source wins, so authoritative NG911
+       address points beat parcel centroids, and a licensed owner feed — which is the
+       only thing here that can supply a name — outranks both. */
     const SOURCES = [
-        { key: 'ng911',     label: 'FILE',    enabled: () => CONFIG.sources.ng911,    fetch: fetchNG911 },
-        { key: 'addr-ks',   label: 'KS 911',  enabled: () => CONFIG.sources.addrKs,   fetch: makeAddressServiceSource('ks') },
-        { key: 'addr-ne',   label: 'NE 911',  enabled: () => CONFIG.sources.addrNe,   fetch: makeAddressServiceSource('ne') },
-        { key: 'parcel-ne', label: 'NE PCL',  enabled: () => CONFIG.sources.parcelNe, fetch: makeParcelSource('ne') },
-        { key: 'parcel-ks', label: 'KS PCL',  enabled: () => CONFIG.sources.parcelKs, fetch: makeParcelSource('ks') }
+        { key: 'ng911',     label: 'FILE',   enabled: () => CONFIG.sources.ng911,   fetch: fetchNG911 },
+        { key: 'owner-ks',  label: 'KS OWN', enabled: () => CONFIG.sources.ownerKs,
+          fetch: makeArcGisSource({ key: 'owner-ks', cfg: () => CONFIG.ownerServices.ks,
+                                    hasOwner: true, radiusScale: CONFIG.engine.parcelRadiusScale, noun: 'parcels' }) },
+        { key: 'owner-ne',  label: 'NE OWN', enabled: () => CONFIG.sources.ownerNe,
+          fetch: makeArcGisSource({ key: 'owner-ne', cfg: () => CONFIG.ownerServices.ne,
+                                    hasOwner: true, radiusScale: CONFIG.engine.parcelRadiusScale, noun: 'parcels' }) },
+        { key: 'addr-ks',   label: 'KS 911', enabled: () => CONFIG.sources.addrKs,
+          fetch: makeArcGisSource({ key: 'addr-ks', cfg: () => CONFIG.addressServices.ks }) },
+        { key: 'addr-ne',   label: 'NE 911', enabled: () => CONFIG.sources.addrNe,
+          fetch: makeArcGisSource({ key: 'addr-ne', cfg: () => CONFIG.addressServices.ne }) },
+        { key: 'parcel-ne', label: 'NE PCL', enabled: () => CONFIG.sources.parcelNe,
+          fetch: makeArcGisSource({ key: 'parcel-ne', cfg: () => CONFIG.parcels.ne,
+                                    hasOwner: true, radiusScale: CONFIG.engine.parcelRadiusScale, noun: 'parcels' }) },
+        { key: 'parcel-ks', label: 'KS PCL', enabled: () => CONFIG.sources.parcelKs,
+          fetch: makeArcGisSource({ key: 'parcel-ks', cfg: () => CONFIG.parcels.ks,
+                                    hasOwner: true, radiusScale: CONFIG.engine.parcelRadiusScale, noun: 'parcels' }) }
         // Anything else drops in here with the same (center, radius) -> Candidate[]
-        // contract; the engine needs no changes. Order is priority: on a tie, the
-        // earlier source wins, so authoritative address points beat parcel centroids.
+        // contract; the engine needs no changes.
     ];
 
     SOURCES.forEach(s => {
         sourceState[s.key] = { status: 'idle', n: 0, fails: 0, suspendUntil: 0,
                                inFlight: false, lastAt: 0, anchor: null };
     });
-    if (!CONFIG.parcels.ks.url) { sourceState['parcel-ks'].status = 'off'; sourceState['parcel-ks'].msg = 'URL not set in CONFIG.parcels'; }
-    if (!CONFIG.addressServices.ne.url) { sourceState['addr-ne'].status = 'off'; sourceState['addr-ne'].msg = 'URL not set — open SETUP to add one'; }
+    for (const s of SOURCES) {
+        const blank = { 'parcel-ks': () => !CONFIG.parcels.ks.url,
+                        'parcel-ne': () => !CONFIG.parcels.ne.url,
+                        'addr-ks':   () => !CONFIG.addressServices.ks.url,
+                        'addr-ne':   () => !CONFIG.addressServices.ne.url,
+                        'owner-ks':  () => !CONFIG.ownerServices.ks.url,
+                        'owner-ne':  () => !CONFIG.ownerServices.ne.url }[s.key];
+        if (blank && blank()) {
+            sourceState[s.key].status = 'off';
+            sourceState[s.key].msg = 'URL not set — open SETUP to add one';
+        }
+    }
+
+    /* =======================================================================
+       ADDRESS SEARCH
+       Geocoding runs against the same NG911 services the drive engine already uses,
+       filtered to the three counties. A general geocoder would be worse here: these
+       are the authoritative records for this ground, a hit is guaranteed to be
+       somewhere you can be dispatched, and each row arrives carrying its ESN and
+       municipality rather than just a pin.
+
+       Both states are queried in parallel and each fails independently — Kansas being
+       slow never stops Nebraska results coming back.
+       ======================================================================= */
+
+    /* ArcGIS SQL string literal. A lone apostrophe in "O'Brien St" would otherwise
+       terminate the literal and the query 400s — doubling it is the escape. */
+    function sqlLit(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
+
+    /* Match on the combined label with the tokens in order but not necessarily
+       adjacent, so "100 chestnut" finds "100 E CHESTNUT ST".
+
+       A leading digit group is anchored to the start of the label: an address label
+       begins with its house number, so "100" should find 100 Chestnut and not every
+       address containing 100 (2100, 1004, …). It does not make the query faster —
+       these services scan regardless — but it keeps the result set to what was asked
+       for. */
+    function searchWhere(cfg, term) {
+        const field = 'UPPER(' + cfg.searchField + ')';
+        const toks = term.toUpperCase().split(/\s+/).filter(Boolean);
+        const clauses = toks.map((tok, i) =>
+            field + ' LIKE ' + sqlLit((i === 0 && /^\d+$/.test(tok) ? '' : '%') + tok + '%'));
+        if (cfg.countyWhere) clauses.push('(' + cfg.countyWhere + ')');
+        return clauses.join(' AND ');
+    }
+
+    /* The corridor the drive engine has already cached, searched locally. Instant and
+       free, and it covers the case that matters most on a shift: the house you just
+       drove past and now need to go back to. Rendered while the services are still
+       being waited on. */
+    function searchLocal(term) {
+        const toks = term.toUpperCase().split(/\s+/).filter(Boolean);
+        const out = [];
+        for (const c of addrCache.values()) {
+            if (!c.address) continue;
+            const up = c.address.toUpperCase();
+            if (!toks.every(t => up.indexOf(t) > -1)) continue;
+            const rec = addressRecord(c.props || {}) || { line1: c.address };
+            out.push({ rec, lat: c.lat, lng: c.lng, state: 'cache' });
+        }
+        return out;
+    }
+
+    function searchOne(stateKey, term) {
+        const cfg = CONFIG.addressServices[stateKey];
+        if (!cfg.url) return Promise.resolve([]);
+        return new Promise(resolve => {
+            L.esri.query({ url: cfg.url })
+                .where(searchWhere(cfg, term))
+                .limit(CONFIG.search.limit)
+                .run((err, fc) => {
+                    if (err) { console.warn('Search failed:', stateKey, err && err.message); return resolve([]); }
+                    const out = [];
+                    for (const f of ((fc && fc.features) || [])) {
+                        const rec = addressRecord(f.properties || {});
+                        const pt = centroidOf(f.geometry);
+                        if (rec && pt) out.push({ rec, lat: pt.lat, lng: pt.lng, state: stateKey });
+                    }
+                    resolve(out);
+                });
+        });
+    }
+
+    /* Rank: a house number the user actually typed matters far more than string
+       similarity, then distance from where the vehicle is now. Ties across the two
+       services are broken by dropping duplicate label+position pairs. */
+    function rankResults(list, term, from) {
+        const toks = term.toUpperCase().split(/\s+/).filter(Boolean);
+        const num = toks.find(t => /^\d+$/.test(t));
+        const seen = new Set();
+        return list.filter(r => {
+            const k = r.rec.line1.toUpperCase() + '|' + r.lat.toFixed(5) + ',' + r.lng.toFixed(5);
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+        }).map(r => {
+            const up = r.rec.line1.toUpperCase();
+            let score = 0;
+            if (num && up.split(/\s+/)[0] === num) score -= 1000;   // exact house number leads
+            if (up.startsWith(toks.join(' '))) score -= 200;
+            score += up.length;                                     // shorter = closer match
+            r.distM = from ? haversine(from, r) : null;
+            if (r.distM != null) score += r.distM / 1000;           // ~1 point per km
+            r.score = score;
+            return r;
+        }).sort((a, b) => a.score - b.score).slice(0, CONFIG.search.limit);
+    }
+
+    const searchEls = {
+        panel: document.getElementById('search-panel'),
+        input: document.getElementById('search-input'),
+        status: document.getElementById('search-status'),
+        results: document.getElementById('search-results')
+    };
+    let searchTimer = null, searchSeq = 0;
+
+    function openSearch() {
+        searchEls.panel.classList.add('on');
+        searchEls.input.focus();
+        searchEls.input.select();
+    }
+    function closeSearch() { searchEls.panel.classList.remove('on'); }
+
+    /* Each state renders the moment it answers rather than both waiting on the slower
+       one. Nebraska's service regularly takes three times as long as Kansas, and
+       holding a Kansas hit back for it means staring at SEARCHING… with the answer
+       already in hand. Results merge and re-rank as they arrive. */
+    function runSearch(term) {
+        const seq = ++searchSeq;
+        if (term.length < CONFIG.search.minChars) {
+            searchEls.status.textContent = '';
+            searchEls.results.innerHTML = '';
+            return;
+        }
+        searchEls.status.textContent = 'SEARCHING…';
+        searchEls.results.innerHTML = '';
+
+        // Anything already cached shows immediately, before a single request goes out.
+        const found = searchLocal(term);
+        let pending = 2;
+        if (found.length) renderSearchResults(rankResults(found, term, lastFix), true);
+        const settle = hits => {
+            if (seq !== searchSeq) return;             // a newer keystroke already won
+            pending--;
+            if (hits && hits.length) found.push.apply(found, hits);
+            renderSearchResults(rankResults(found, term, lastFix), pending > 0);
+        };
+        ['ks', 'ne'].forEach(st => {
+            withTimeout(searchOne(st, term), CONFIG.search.timeoutMs, 'search-' + st)
+                .then(settle, () => settle([]));
+        });
+    }
+
+    function renderSearchResults(list, stillSearching) {
+        if (!list.length) {
+            searchEls.status.textContent = stillSearching
+                ? 'SEARCHING…' : 'NO MATCH IN DONIPHAN, BROWN OR RICHARDSON';
+            searchEls.results.innerHTML = '';
+            return;
+        }
+        searchEls.status.textContent = list.length + ' RESULT' + (list.length === 1 ? '' : 'S') +
+            (stillSearching ? ' — STILL SEARCHING…' : '');
+        searchEls.results.innerHTML = '';
+        list.forEach(r => {
+            const j = countyChipFor(r.rec.county);
+            const row = document.createElement('div');
+            row.className = 'search-row';
+            const sub = [r.rec.city, r.rec.zip, r.rec.esn ? 'ESN ' + r.rec.esn : null]
+                .filter(Boolean).join(' · ');
+            row.innerHTML =
+                `<div class="search-main">
+                    <div class="search-addr">${esc(r.rec.line1)}</div>
+                    <div class="search-sub">${esc(sub)}</div>
+                 </div>` +
+                (j ? `<span class="search-co" style="color:${j.color};border-color:${j.color}">${esc(j.name)}</span>` : '') +
+                (r.distM != null ? `<span class="search-dist">${(r.distM / 1609.344).toFixed(1)} mi</span>` : '');
+            row.addEventListener('click', () => { closeSearch(); startRoute(r); });
+            searchEls.results.appendChild(row);
+        });
+    }
+
+    // County name as the services spell it -> the jurisdiction entry, for the chip.
+    function countyChipFor(countyName) {
+        if (!countyName) return null;
+        const up = countyName.toUpperCase();
+        for (const g of Object.keys(CONFIG.jurisdiction.byGeoid)) {
+            const j = CONFIG.jurisdiction.byGeoid[g];
+            if (up.indexOf(j.name) === 0) return j;
+        }
+        return null;
+    }
+
+    /* =======================================================================
+       ROUTING
+       OSRM over the public server by default; the URL is a SETUP slot so it can be
+       repointed at your own instance. Requests are plain GET with no key.
+
+       A failed re-route must never wipe the line you are currently following, so
+       route state is only replaced on success.
+       ======================================================================= */
+    const navEls = {
+        strip: document.getElementById('nav-strip'),
+        arrow: document.getElementById('nav-arrow'),
+        step: document.getElementById('nav-step'),
+        dest: document.getElementById('nav-dest'),
+        etaTime: document.getElementById('nav-eta-time'),
+        etaDist: document.getElementById('nav-eta-dist')
+    };
+
+    let route = null;           // {line:[{lat,lng}], steps:[...], distance, duration}
+    let routeLayer = null, destMarker = null, destination = null;
+    let offRouteCount = 0, lastRerouteAt = 0, routing = false;
+
+    const MANEUVER_GLYPH = {
+        'turn-left': '←', 'turn-right': '→',
+        'turn-slight left': '↖', 'turn-slight right': '↗',
+        'turn-sharp left': '↖', 'turn-sharp right': '↗',
+        'turn-straight': '↑', 'turn-uturn': '↶',
+        'depart': '↑', 'arrive': '◉',
+        'roundabout': '↻', 'rotary': '↻',
+        'merge': '↗', 'fork': '⤴', 'end of road': '→',
+        'new name': '↑', 'continue': '↑', 'on ramp': '↗', 'off ramp': '↘'
+    };
+    function maneuverGlyph(m) {
+        if (!m) return '↑';
+        return MANEUVER_GLYPH[m.type + '-' + (m.modifier || '')] ||
+               MANEUVER_GLYPH[m.modifier || ''] ||
+               MANEUVER_GLYPH[m.type] || '↑';
+    }
+
+    // "Turn right onto Chestnut St" from an OSRM step. OSRM's own text instruction
+    // is only present with a language plugin, so it is assembled from the maneuver.
+    function stepText(s) {
+        const m = s.maneuver || {};
+        const road = s.name ? ' onto ' + s.name : '';
+        switch (m.type) {
+            case 'depart':   return s.name ? 'Head ' + (m.modifier || '') + ' on ' + s.name : 'Start';
+            case 'arrive':   return 'Arrive' + (m.modifier ? ' on the ' + m.modifier : '');
+            case 'turn':     return 'Turn ' + (m.modifier || '') + road;
+            case 'new name': return 'Continue' + road;
+            case 'continue': return 'Continue ' + (m.modifier || '') + road;
+            case 'merge':    return 'Merge ' + (m.modifier || '') + road;
+            case 'fork':     return 'Keep ' + (m.modifier || '') + road;
+            case 'end of road': return 'Turn ' + (m.modifier || '') + road;
+            case 'roundabout':
+            case 'rotary':   return 'Take the roundabout' + road;
+            case 'on ramp':  return 'Take the ramp' + road;
+            case 'off ramp': return 'Take the exit' + road;
+            default:         return (m.type || 'Continue') + road;
+        }
+    }
+
+    function miles(m) { return m / 1609.344; }
+    function fmtDist(m) {
+        const mi = miles(m);
+        if (mi < 0.19) return Math.round(m / 0.3048 / 10) * 10 + ' ft';
+        return mi.toFixed(mi < 10 ? 1 : 0) + ' mi';
+    }
+    function fmtDur(s) {
+        const min = Math.round(s / 60);
+        return min < 60 ? min + ' min' : Math.floor(min / 60) + 'h ' + (min % 60) + 'm';
+    }
+
+    function fetchRoute(from, to) {
+        const url = CONFIG.routing.url.replace(/\/$/, '') +
+            `/${from.lng},${from.lat};${to.lng},${to.lat}` +
+            '?overview=full&geometries=geojson&steps=true&annotations=false';
+        return fetch(url, { cache: 'no-store' })
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(j => {
+                if (j.code !== 'Ok' || !j.routes || !j.routes.length) {
+                    throw new Error(j.message || j.code || 'no route');
+                }
+                const r = j.routes[0];
+                const line = (r.geometry.coordinates || []).map(c => ({ lat: c[1], lng: c[0] }));
+                const steps = [];
+                for (const leg of (r.legs || [])) {
+                    for (const s of (leg.steps || [])) {
+                        steps.push({
+                            text: stepText(s),
+                            glyph: maneuverGlyph(s.maneuver),
+                            distance: s.distance,
+                            at: s.maneuver && s.maneuver.location
+                                ? { lat: s.maneuver.location[1], lng: s.maneuver.location[0] } : null
+                        });
+                    }
+                }
+                return { line, steps, distance: r.distance, duration: r.duration };
+            });
+    }
+
+    function startRoute(target) {
+        destination = { lat: target.lat, lng: target.lng, rec: target.rec };
+        if (destMarker) map.removeLayer(destMarker);
+        destMarker = L.circleMarker([destination.lat, destination.lng], {
+            radius: 9, color: '#33ff77', weight: 3, fillColor: '#0a2a16', fillOpacity: 0.9
+        }).addTo(map);
+        destMarker.bindPopup('<div class="parcel-popup"><h4>DESTINATION</h4>' +
+            `<div style="font-size:15px;font-weight:800;color:#eaeaea">${esc(destination.rec.line1)}</div>` +
+            `<div style="color:#8a8a8a;font-size:11px;margin-top:3px">${esc(formatAddress(destination.rec))}</div></div>`);
+        requestRoute(true);
+    }
+
+    function requestRoute(initial) {
+        const from = lastFix;
+        if (!destination) return;
+        if (!from) {
+            toast('No GPS fix yet — showing the destination only');
+            map.setView([destination.lat, destination.lng], Math.max(map.getZoom(), 15));
+            showNav();
+            return;
+        }
+        if (routing) return;
+        routing = true;
+        lastRerouteAt = Date.now();
+        setSourceState('router', 'idle', 0, 'routing…');
+        fetchRoute(toLL(from), destination)
+            .then(r => {
+                route = r;
+                offRouteCount = 0;
+                drawRoute();
+                showNav();
+                setSourceState('router', 'ok', r.steps.length, fmtDist(r.distance) + ' / ' + fmtDur(r.duration));
+                if (initial) {
+                    map.fitBounds(L.latLngBounds(r.line.map(p => [p.lat, p.lng])), { padding: [40, 40] });
+                }
+            })
+            .catch(e => {
+                // Keep whatever line is already drawn. Losing the route on a bad
+                // re-route request is worse than following a slightly stale one.
+                setSourceState('router', 'error', route ? route.steps.length : 0, String(e && e.message || e));
+                if (!route) toast('Routing unavailable: ' + (e && e.message || e));
+            })
+            .then(() => { routing = false; });
+    }
+
+    function drawRoute() {
+        if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+        if (!route) return;
+        routeLayer = L.layerGroup([
+            L.polyline(route.line.map(p => [p.lat, p.lng]), { color: '#000', weight: 11, opacity: 0.55 }),
+            L.polyline(route.line.map(p => [p.lat, p.lng]), { color: '#33ff77', weight: 5, opacity: 0.95 })
+        ]).addTo(map);
+        if (routeLayer.bringToFront) routeLayer.bringToFront();
+    }
+
+    function showNav() {
+        navEls.strip.classList.add('on');
+        navEls.dest.textContent = destination ? formatAddress(destination.rec) : '';
+        renderNav(null);
+    }
+
+    function endRoute() {
+        route = null; destination = null; offRouteCount = 0;
+        if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+        if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
+        navEls.strip.classList.remove('on');
+        setSourceState('router', 'idle', 0, 'no active route');
+    }
+
+    /* Progress along the route. Called on every fix; cheap because it only walks the
+       remaining steps, and the remaining-distance sum is over step distances rather
+       than re-measuring the polyline. */
+    function updateRouteProgress(f) {
+        if (!route || !destination || !f) return;
+        const pt = toLL(f.latlng || f);
+
+        // Nearest point on the route line, using the same segment measure the address
+        // engine uses, so "off route" means off the line you would actually drive.
+        let best = Infinity, bestIdx = 0;
+        for (let i = 1; i < route.line.length; i++) {
+            const d = distToSegment(pt, route.line[i - 1], route.line[i]);
+            if (d < best) { best = d; bestIdx = i; }
+        }
+
+        // Which manoeuvre is next: the first step whose location we have not passed.
+        let nextIdx = route.steps.length - 1;
+        for (let i = 0; i < route.steps.length; i++) {
+            const at = route.steps[i].at;
+            if (!at) continue;
+            let atIdx = 0, atBest = Infinity;
+            for (let k = 1; k < route.line.length; k++) {
+                const d = haversine(at, route.line[k]);
+                if (d < atBest) { atBest = d; atIdx = k; }
+            }
+            if (atIdx >= bestIdx) { nextIdx = i; break; }
+        }
+
+        const toDest = haversine(pt, destination);
+        if (toDest < 40) {
+            renderNav(nextIdx, 0, toDest);
+            navEls.step.textContent = 'ARRIVED';
+            navEls.arrow.textContent = '◉';
+            return;
+        }
+        renderNav(nextIdx, best, toDest);
+
+        // Off route: sustained, not a single noisy fix, and rate-limited so a bad
+        // GPS patch in a river valley cannot trigger a request storm.
+        if (best > CONFIG.routing.offRouteM) {
+            offRouteCount++;
+            if (offRouteCount >= CONFIG.routing.offRouteFixes &&
+                Date.now() - lastRerouteAt > CONFIG.routing.rerouteMinMs) {
+                offRouteCount = 0;
+                toast('Off route — recalculating');
+                requestRoute(false);
+            }
+        } else {
+            offRouteCount = 0;
+        }
+    }
+
+    function renderNav(nextIdx, offM, toDestM) {
+        if (!route) return;
+        const i = (nextIdx == null) ? 0 : nextIdx;
+        const s = route.steps[i];
+        if (s) {
+            navEls.step.textContent = s.text;
+            navEls.arrow.textContent = s.glyph;
+        }
+        // Remaining distance from the steps still ahead; ETA scaled from the route's
+        // own average speed, which is closer than a fixed assumption on gravel.
+        let remain = 0;
+        for (let k = i; k < route.steps.length; k++) remain += route.steps[k].distance;
+        if (toDestM != null && remain < toDestM) remain = toDestM;
+        const speed = route.distance > 0 ? route.distance / route.duration : 12;
+        navEls.etaDist.textContent = fmtDist(remain);
+        navEls.etaTime.textContent = fmtDur(remain / (speed || 12));
+    }
 
     /* =======================================================================
        DRIVE MODE
@@ -2146,11 +3224,37 @@
         }
     }
 
-    const ARROW_SVG =
+    /* ---------------- Vehicle marker ----------------
+       A patrol car viewed from above, nose at the top of the viewBox so the rotation
+       in updateVehicle() points it along the heading with no offset. Drawn rather
+       than an image file so it stays crisp at any density and needs no extra request
+       to cache for offline.
+
+       The light bar alternates red and blue on a CSS animation: at a glance across a
+       cluttered map, motion finds the vehicle faster than colour alone. */
+    const CAR_SVG =
         '<div class="drive-arrow-rot"><svg width="44" height="44" viewBox="0 0 44 44">' +
-        '<circle cx="22" cy="22" r="20" fill="rgba(0,0,0,0.45)" stroke="#00bb33" stroke-width="1"/>' +
-        '<path d="M22 6 L33 34 L22 27 L11 34 Z" fill="#33ff77" stroke="#00aa22" stroke-width="1"/>' +
+        '<circle cx="22" cy="22" r="21" fill="rgba(0,0,0,0.40)" stroke="#00bb33" stroke-width="1"/>' +
+        // body
+        '<path d="M22 5 C17.5 5 15 8.5 14.5 13 L13.5 25 C13.2 31 14 36 15 38.4 ' +
+        'C16.4 39.6 18.6 40 22 40 C25.4 40 27.6 39.6 29 38.4 ' +
+        'C30 36 30.8 31 30.5 25 L29.5 13 C29 8.5 26.5 5 22 5 Z" ' +
+        'fill="#f2f4f7" stroke="#0b0b0b" stroke-width="1.4" stroke-linejoin="round"/>' +
+        // front and rear glass
+        '<path d="M17 12.6 C19 11.6 25 11.6 27 12.6 L28 17.4 C25 16.4 19 16.4 16 17.4 Z" fill="#12304a"/>' +
+        '<path d="M16.2 31.8 C19 30.9 25 30.9 27.8 31.8 L28.2 36 C25 35.1 19 35.1 15.8 36 Z" fill="#12304a"/>' +
+        // door panel — the black-and-white cruiser read
+        '<path d="M15 18.6 L29 18.6 L29.4 30.4 L14.6 30.4 Z" fill="#101418"/>' +
+        // light bar
+        '<rect x="15.6" y="20.2" width="12.8" height="4.4" rx="1.2" fill="#1a1a1a"/>' +
+        '<rect class="lb lb-r" x="16.4" y="21" width="5.2" height="2.9" rx="0.9" fill="#ff2a2a"/>' +
+        '<rect class="lb lb-b" x="22.4" y="21" width="5.2" height="2.9" rx="0.9" fill="#2a6bff"/>' +
+        // headlamps
+        '<rect x="15.6" y="7.4" width="3.6" height="2.2" rx="1" fill="#ffe9a8"/>' +
+        '<rect x="24.8" y="7.4" width="3.6" height="2.2" rx="1" fill="#ffe9a8"/>' +
         '</svg></div>';
+
+    /* No trustworthy heading yet — a car pointed the wrong way is a lie, a dot is not. */
     const DOT_SVG =
         '<div class="drive-arrow-rot"><svg width="44" height="44" viewBox="0 0 44 44">' +
         '<circle cx="22" cy="22" r="20" fill="rgba(0,0,0,0.45)" stroke="#00bb33" stroke-width="1"/>' +
@@ -2206,13 +3310,13 @@
         }
     }
 
-    function updateArrow(f) {
+    function updateVehicle(f) {
         if (!headingMarker) return;
         const el = headingMarker.getElement();
         if (!el) return;
-        const kind = f.headingKnown ? 'arrow' : 'dot';
+        const kind = f.headingKnown ? 'car' : 'dot';
         if (el.dataset.kind !== kind) {
-            el.innerHTML = f.headingKnown ? ARROW_SVG : DOT_SVG;
+            el.innerHTML = f.headingKnown ? CAR_SVG : DOT_SVG;
             el.dataset.kind = kind;
         }
         headingMarker.setLatLng(f.latlng);
@@ -2240,7 +3344,10 @@
 
     function renderSourceBadges() {
         if (!els.hudSources) return;
-        els.hudSources.innerHTML = SOURCES.map(s => {
+        // The router reports alongside the data sources: if it is failing while you
+        // are following a line, that is something to know before the next junction.
+        const badges = SOURCES.concat([{ key: 'router', label: 'ROUTE' }]);
+        els.hudSources.innerHTML = badges.map(s => {
             const st = sourceState[s.key] || {};
             let cls = 'status-indicator', text = s.label + ': ';
             switch (st.status) {
@@ -2281,13 +3388,7 @@
 
         // Started inside the click gesture — a screen wake lock requested after an
         // await would be rejected by the browser as not user-initiated.
-        const wlPromise = requestWakeLock();
-
-        if (!acknowledgedSafety()) {
-            const ok = await askSafety();
-            if (!ok) { await wlPromise; releaseWakeLock(); return; }
-        }
-        await wlPromise;
+        await requestWakeLock();
 
         MODE = 'drive';
 
@@ -2343,7 +3444,7 @@
         renderSourceBadges();
         renderEmptyState();
 
-        if (curFix) { applyDriveCamera(curFix); updateArrow(curFix); updateHud(curFix); }
+        if (curFix) { applyDriveCamera(curFix); updateVehicle(curFix); updateHud(curFix); }
         else { startGeolocation(true); }
     }
 
@@ -2366,7 +3467,7 @@
         els.btnHeadingUp.setAttribute('aria-pressed', headingUp ? 'true' : 'false');
         savePrefs();
         if (!headingUp && ROTATION_AVAILABLE) { try { map.setBearing(0); } catch (e) {} }
-        if (curFix) { applyDriveCamera(curFix); updateArrow(curFix); }
+        if (curFix) { applyDriveCamera(curFix); updateVehicle(curFix); }
     });
 
     /* ---------------- Screen wake lock ---------------- */
@@ -2383,28 +3484,6 @@
         // Only the wake lock needs re-acquiring when the page comes back.
         if (!document.hidden && MODE === 'drive' && !wakeLock) requestWakeLock();
     });
-
-    /* ---------------- One-time safety acknowledgement ---------------- */
-    function acknowledgedSafety() {
-        try { return localStorage.getItem(CONFIG.storage.ackKey) === '1'; } catch (e) { return false; }
-    }
-    function askSafety() {
-        return new Promise(resolve => {
-            els.ack.classList.add('on');
-            const ok = document.getElementById('ack-ok');
-            const cancel = document.getElementById('ack-cancel');
-            function done(v) {
-                els.ack.classList.remove('on');
-                ok.removeEventListener('click', yes);
-                cancel.removeEventListener('click', no);
-                resolve(v);
-            }
-            function yes() { try { localStorage.setItem(CONFIG.storage.ackKey, '1'); } catch (e) {} done(true); }
-            function no() { done(false); }
-            ok.addEventListener('click', yes);
-            cancel.addEventListener('click', no);
-        });
-    }
 
     /* =======================================================================
        FEED UI
@@ -2435,7 +3514,11 @@
         'parcel-ne': 'NE PCL', 'parcel-ks': 'KS PCL'
     };
     // Parcels carry an owner; address points don't. That split drives the feed filter.
-    function isParcelSource(src) { return String(src).indexOf('parcel') === 0; }
+    // Parcel-shaped sources get the parcel record view; owner feeds are parcels too.
+    function isParcelSource(src) {
+        const s = String(src);
+        return s.indexOf('parcel') === 0 || s.indexOf('owner') === 0;
+    }
 
     function rowHtml(e) {
         const bits = [];
@@ -2510,32 +3593,39 @@
     function openEntry(e) {
         breakFollow();
         map.setView([e.lat, e.lng], Math.max(map.getZoom(), 18));
+        const pt = { lat: e.lat, lng: e.lng };
         let html;
         if (e.props && isParcelSource(e.source)) {
-            html = buildParcelPopup(e.props, e.source === 'parcel-ne' ? 'NE (Richardson Co.)' : 'KS (Brown/Doniphan Co.)');
+            const ne = /-ne$/.test(String(e.source));
+            html = buildParcelPopup(e.props, ne ? 'NE (Richardson Co.)' : 'KS (Brown/Doniphan Co.)', pt);
         } else {
-            const p = e.props || {};
-            html = '<div class="parcel-popup"><h4>ADDRESS POINT</h4><table>' +
-                row('Address', { value: e.address }) +
+            // The address record, plus how and when this one was passed.
+            html = buildAddressPopup(e.props || {}, pt).replace('</div>',
+                '<table>' +
                 (e.owner ? row('Owner', { value: e.owner }) : '') +
-                (getField(p, ['msagco', 'postco', 'city', 'community', 'incmuni']) ? row('Community', { value: getField(p, ['msagco', 'postco', 'city', 'community', 'incmuni']) }) : '') +
-                (getField(p, ['zip', 'postcode', 'zipcode', 'post_code']) ? row('ZIP', { value: getField(p, ['zip', 'postcode', 'zipcode', 'post_code']) }) : '') +
-                (getField(p, ['county', 'countyname', 'county_name']) ? row('County', { value: getField(p, ['county', 'countyname', 'county_name']) }) : '') +
                 row('Passed', { value: new Date(e.t).toLocaleString() }) +
                 row('Offset', { value: e.dist + ' m' + (e.side ? ' ' + e.side : '') }) +
-                '</table>';
-            // Full record, collapsed — the same escape hatch parcel popups give you when
-            // the surfaced fields aren't the ones you need.
-            const rest = Object.keys(p).filter(k => p[k] !== null && String(p[k]).trim() !== '');
-            if (rest.length) {
-                html += '<details><summary>All attributes</summary><table>';
-                rest.forEach(k => { html += `<tr><td class="k">${esc(k)}</td><td class="v">${esc(fmt(p[k]))}</td></tr>`; });
-                html += '</table></details>';
-            }
-            html += '</div>';
+                '</table></div>');
         }
+        // A route straight to the record you just tapped — the reason this feed exists
+        // is that a house you drove past is one you may have to go back to.
+        html = html.replace('</div>',
+            `<button type="button" class="feed-btn route-here-btn" ` +
+            `data-lat="${e.lat}" data-lng="${e.lng}" data-addr="${esc(e.address || '')}">ROUTE HERE</button></div>`);
         L.popup({ maxWidth: 320 }).setLatLng([e.lat, e.lng]).setContent(html).openOn(map);
     }
+
+    document.addEventListener('click', ev => {
+        const btn = ev.target && ev.target.closest && ev.target.closest('.route-here-btn');
+        if (!btn) return;
+        ev.preventDefault();
+        map.closePopup();
+        startRoute({
+            lat: +btn.dataset.lat,
+            lng: +btn.dataset.lng,
+            rec: { line1: btn.dataset.addr || 'Selected location' }
+        });
+    });
 
     // Audible + haptic notice, so an address does not require looking at the screen.
     let audioCtx = null;
@@ -2924,6 +4014,20 @@
             }
         }
 
+        /* The router is not an ArcGIS layer, so it gets its own probe: a short real
+           route from where you are. Anything that answers with a distance and a step
+           list will work for navigation. */
+        if (kind === 'route') {
+            try {
+                const to = destPoint(center, 90, 3000);   // 3 km east — always routable on a road grid
+                const r = await withTimeout(fetchRoute(center, to), 20000, id);
+                return { cls: 'ok', text: `OK — test route ${fmtDist(r.distance)} / ` +
+                                          `${fmtDur(r.duration)}, ${r.steps.length} steps.` };
+            } catch (e) {
+                return { cls: 'bad', text: 'FAILED — ' + String((e && e.message) || e) };
+            }
+        }
+
         try {
             const res = await withTimeout(queryNear(url, center, 2000), 20000, id);
             const feats = (res.fc && res.fc.features) || [];
@@ -3296,6 +4400,121 @@
         ok('GeoJSON export writes [lng,lat]',
             gj.features[0].geometry.coordinates[0] === -95.3 && gj.features[0].geometry.coordinates[1] === 39.9);
 
+        /* --- address labelling, against REAL record shapes from both states ---
+           Invented fixtures are what let the Nebraska bug survive: the old field
+           lists parse a Kansas record perfectly and silently drop the house number
+           from a Nebraska one. These are verbatim from the live services. */
+        const KS_REC = { HNO: 216, HNS: ' ', PRD: ' ', STP: ' ', RD: '315TH', STS: 'RD', POD: ' ',
+                         LABEL: '216 315TH RD', MUNI: 'UNINCORPORATED', COUNTY: 'DONIPHAN COUNTY',
+                         ZIP: '66094', ESN: '7207', POSTCO: 'WHITE CLOUD' };
+        const NE_REC = { FULL_ADDR: '1107 Harlan Street', ADD_NUM: 1107, ST_NAME: 'Harlan',
+                         ST_TYPE: 'Street', COUNTY: 'Richardson County', ESN: '01589' };
+        const NE_PARTS = { ADD_NUM: 65345, PRE_DIR: 'W', ST_NAME: '713', ST_TYPE: 'Road',
+                           POS_DIR: 'N', COUNTY: 'Richardson County' };
+
+        ok('KS NG911 record parses', addrFromProps(KS_REC) === '216 315TH RD', String(addrFromProps(KS_REC)));
+        ok('NE record keeps its house number',
+            addrFromProps(NE_REC) === '1107 Harlan Street', String(addrFromProps(NE_REC)));
+        ok('NE component assembly keeps number and post-directional',
+            addrFromProps(NE_PARTS) === '65345 W 713 Road N', String(addrFromProps(NE_PARTS)));
+        ok('UNINCORPORATED falls back to the postal community',
+            addressRecord(KS_REC).city === 'WHITE CLOUD', String(addressRecord(KS_REC).city));
+        ok('full label carries city, state and ZIP',
+            formatAddress(addressRecord(KS_REC)) === '216 315TH RD, WHITE CLOUD, KS 66094',
+            String(formatAddress(addressRecord(KS_REC))));
+        ok('state inferred from county when absent',
+            addressRecord(NE_REC).state === 'NE', String(addressRecord(NE_REC).state));
+        ok('a fully-qualified situs is not given city and ZIP twice',
+            formatAddress({ line1: '70919 652 AVE, FALLS CITY, NE 68355', city: 'FALLS CITY',
+                            state: 'NE', zip: '68355' }) === '70919 652 AVE, FALLS CITY, NE 68355',
+            formatAddress({ line1: '70919 652 AVE, FALLS CITY, NE 68355', city: 'FALLS CITY',
+                            state: 'NE', zip: '68355' }));
+        ok('"PINE ST" does not swallow the state NE',
+            formatAddress({ line1: '1107 PINE ST', city: 'FALLS CITY', state: 'NE', zip: '68355' })
+                === '1107 PINE ST, FALLS CITY, NE 68355',
+            formatAddress({ line1: '1107 PINE ST', city: 'FALLS CITY', state: 'NE', zip: '68355' }));
+        ok('ESN is surfaced', addressRecord(KS_REC).esn === '7207' && addressRecord(NE_REC).esn === '01589');
+        ok('sub-address assembled from BLD/FLR/UNIT',
+            addressRecord({ LABEL: '5 MAIN ST', BLD: 'A', UNIT: '3' }).unit === 'BLDG A UNIT 3');
+        ok('a single-space field is not a unit', addressRecord(KS_REC).unit === null);
+        ok('Ownership_Type is not read as an owner name',
+            ownerFromProps({ Ownership_Type: 'FEE', Situs_Address: '1 A St' }) === null);
+        ok('pick prefers an exact match over substring order',
+            pick({ Land_Value: 1, Total_Assessed_Value: 9 },
+                 ['total_val', 'assess', 'value']).field === 'Total_Assessed_Value');
+
+        /* --- point in polygon: the jurisdiction banner --- */
+        const holed = { type: 'Polygon', coordinates: [
+            [[0,0],[0,10],[10,10],[10,0],[0,0]], [[4,4],[4,6],[6,6],[6,4],[4,4]] ] };
+        ok('pointInPolygon: inside', pointInPolygon({ lat: 2, lng: 2 }, holed) === true);
+        ok('pointInPolygon: a hole is outside', pointInPolygon({ lat: 5, lng: 5 }, holed) === false);
+        ok('pointInPolygon: outside', pointInPolygon({ lat: 20, lng: 20 }, holed) === false);
+        ok('pointInPolygon: MultiPolygon second part', pointInPolygon({ lat: 21, lng: 21 },
+            { type: 'MultiPolygon', coordinates: [holed.coordinates,
+              [[[20,20],[20,22],[22,22],[22,20],[20,20]]]] }) === true);
+        // A point exactly on a shared edge must land in exactly one county, never both.
+        const west = { type: 'Polygon', coordinates: [[[0,0],[0,10],[5,10],[5,0],[0,0]]] };
+        const east = { type: 'Polygon', coordinates: [[[5,0],[5,10],[10,10],[10,0],[5,0]]] };
+        ok('a point on a shared county edge belongs to exactly one',
+            (pointInPolygon({ lat: 5, lng: 5 }, west) ? 1 : 0) +
+            (pointInPolygon({ lat: 5, lng: 5 }, east) ? 1 : 0) === 1);
+
+        /* --- county identity: the values that were wrong --- */
+        ok('Richardson NE is GEOID 31147, not Sarpy 31153',
+            !!CONFIG.jurisdiction.byGeoid['31147'] && !CONFIG.jurisdiction.byGeoid['31153']);
+        ok('county filter names all three counties',
+            ['20043', '20013', '31147'].every(g => CONFIG.counties.where.indexOf(g) > -1),
+            CONFIG.counties.where);
+        ok('the where fallback agrees with the GEOID list',
+            CONFIG.counties.whereFallback.indexOf("'147'") > -1 &&
+            CONFIG.counties.whereFallback.indexOf("'153'") === -1);
+        ok('every shaded county has a distinct colour', (() => {
+            const cols = Object.keys(CONFIG.jurisdiction.byGeoid).map(g => CONFIG.jurisdiction.byGeoid[g].color);
+            return new Set(cols).size === cols.length;
+        })());
+        ok('reservation filters on AIANNH 1590 (Iowa KS-NE), not 2430 (Navajo)',
+            CONFIG.reservation.where.indexOf('1590') > -1 &&
+            CONFIG.reservation.where.indexOf('AIANNHCE') === -1, CONFIG.reservation.where);
+        ok('trust land uses the same code', CONFIG.trust.where === CONFIG.reservation.where);
+        ok('every county in the shading table has a record lookup',
+            Object.keys(CONFIG.jurisdiction.byGeoid)
+                .every(g => !!COUNTY_LOOKUPS[CONFIG.jurisdiction.byGeoid[g].name]));
+
+        /* --- search query construction --- */
+        ok('search escapes an apostrophe in a street name',
+            searchWhere(CONFIG.addressServices.ks, "O'BRIEN").indexOf("O''BRIEN") > -1,
+            searchWhere(CONFIG.addressServices.ks, "O'BRIEN"));
+        ok('search is scoped to the counties in view',
+            searchWhere(CONFIG.addressServices.ks, 'MAIN').indexOf('DONIPHAN COUNTY') > -1);
+        ok('multi-token search ANDs the tokens', (() => {
+            const w = searchWhere(CONFIG.addressServices.ne, '100 CHESTNUT');
+            return (w.match(/LIKE/g) || []).length === 2 && w.indexOf(' AND ') > -1;
+        })());
+        ok('an exact house number outranks a longer partial match', (() => {
+            const r = rankResults([
+                { rec: { line1: '1100 CHESTNUT ST' }, lat: 39.9, lng: -95.3 },
+                { rec: { line1: '100 CHESTNUT ST' },  lat: 39.9, lng: -95.3 }
+            ], '100 CHESTNUT', null);
+            return r[0].rec.line1 === '100 CHESTNUT ST';
+        })());
+        ok('duplicate hits across the two services collapse to one', (() => {
+            const dup = { rec: { line1: '100 CHESTNUT ST' }, lat: 39.9772, lng: -95.2974 };
+            return rankResults([dup, Object.assign({}, dup)], '100 CHESTNUT', null).length === 1;
+        })());
+
+        /* --- routing --- */
+        ok('OSRM step text names the road',
+            stepText({ name: 'Chestnut St', maneuver: { type: 'turn', modifier: 'right' } })
+                === 'Turn right onto Chestnut St');
+        ok('a turn maps to a directional glyph',
+            maneuverGlyph({ type: 'turn', modifier: 'left' }) === '←' &&
+            maneuverGlyph({ type: 'turn', modifier: 'right' }) === '→');
+        ok('an unknown manoeuvre still yields a glyph', maneuverGlyph({ type: 'nonsense' }) === '↑');
+        ok('short distances read in feet, long in miles',
+            fmtDist(100).indexOf('ft') > -1 && fmtDist(5000).indexOf('mi') > -1,
+            fmtDist(100) + ' / ' + fmtDist(5000));
+        ok('durations roll over into hours', fmtDur(120) === '2 min' && fmtDur(3720) === '1h 2m');
+
         /* --- misc --- */
         ok('metresPerPixel z17 @40N ≈ 0.915', near(metresPerPixel(40, 17), 0.915, 0.02), metresPerPixel(40, 17).toFixed(4));
         ok('cardinal(0) = N', cardinal(0) === 'N');
@@ -3312,9 +4531,174 @@
     }
 
     /* =======================================================================
+       LIVE CHECK  (?livecheck=1)
+       Every configured endpoint, hit for real, with a sample record printed back.
+
+       selftest proves the code is right about data it is handed. This proves the
+       data is there at all — and that is the failure this app actually had: the
+       reservation filtered on a field that does not exist, the Nebraska county was
+       Sarpy, and the parcel service had 404'd, none of which any amount of unit
+       testing would surface. Run it after any endpoint change, and from the phone
+       when something looks wrong in the field.
+       ======================================================================= */
+    async function runLiveCheck() {
+        const el = document.getElementById('selftest');
+        el.classList.add('on');
+        const lines = [];
+        let pass = 0, fail = 0, skip = 0;
+
+        const render = extra => {
+            el.innerHTML = `LIVE CHECK — ${pass} ok, ${fail} failed, ${skip} not set\n` +
+                `build ${CONFIG.build}\n\n` + lines.join('\n') + (extra ? '\n\n' + extra : '');
+        };
+
+        // Boundaries and county lines are attribute queries, not spatial ones: the
+        // question is whether the filter matches anything at all.
+        const byWhere = (label, cfg, expect) => ({
+            label,
+            run: () => new Promise((resolve, reject) => {
+                if (!cfg.url) return reject(new Error('URL not set'));
+                L.esri.query({ url: cfg.url }).where(cfg.where).limit(4)
+                    .run((err, fc) => {
+                        if (err) return reject(err);
+                        const feats = (fc && fc.features) || [];
+                        if (!feats.length) return reject(new Error('query matched 0 features — filter is wrong'));
+                        const names = feats.map(f => {
+                            const p = f.properties || {};
+                            return p.NAME || p.BASENAME || p.GEOID || '?';
+                        });
+                        if (expect && !names.some(n => String(n).toUpperCase().indexOf(expect) > -1)) {
+                            return reject(new Error(`matched ${names.join(', ')} — expected ${expect}`));
+                        }
+                        resolve(`${feats.length} feature(s): ${names.join(', ')}`);
+                    });
+            })
+        });
+
+        /* Address / parcel services are spatial: query a real corridor and read back an
+           address, which is the only proof the field mapping works end to end.
+
+           Each service is probed over ground it actually covers. Testing the Nebraska
+           services from White Cloud reports a false failure — White Cloud sits on the
+           Kansas bank and the nearest Richardson County address is further out than any
+           sensible corridor radius. `probe` is that anchor; a live GPS fix overrides it,
+           because from the truck the question is whether the service works HERE. */
+        const PROBE = {
+            ks: { lat: 39.9772, lng: -95.2974 },   // White Cloud, Doniphan Co.
+            ne: { lat: 40.0617, lng: -95.6019 }    // Falls City, Richardson Co.
+        };
+        const bySpatial = (label, getCfg, noun, probe) => ({
+            label,
+            run: async () => {
+                const cfg = getCfg();
+                if (!cfg || !cfg.url) throw new Error('URL not set');
+                const center = lastFix ? toLL(lastFix) : (probe || { lat: CONFIG.center[0], lng: CONFIG.center[1] });
+                const res = await withTimeout(queryNear(cfg.url, center, 8000, cfg.countyWhere || null), 25000, label);
+                const feats = (res.fc && res.fc.features) || [];
+                if (!feats.length) throw new Error('0 ' + noun + ' within 8 km of ' +
+                    center.lat.toFixed(4) + ',' + center.lng.toFixed(4));
+                const recs = feats.map(f => addressRecord(f.properties)).filter(Boolean);
+                if (!recs.length) {
+                    return { warn: true, msg: `${feats.length} ${noun}, none with a readable address. ` +
+                        `Fields: ${Object.keys(feats[0].properties || {}).slice(0, 10).join(', ')}` };
+                }
+                return `${feats.length} ${noun}, ${recs.length} addressed — e.g. "${formatAddress(recs[0])}"`;
+            }
+        });
+
+        const checks = [
+            byWhere('Reservation boundary', CONFIG.reservation, 'IOWA'),
+            byWhere('Off-reservation trust land', CONFIG.trust, 'IOWA'),
+            byWhere('County lines', CONFIG.counties, 'RICHARDSON'),
+            bySpatial('KS NG911 address points', () => CONFIG.addressServices.ks, 'points', PROBE.ks),
+            bySpatial('NE NG911 address points', () => CONFIG.addressServices.ne, 'points', PROBE.ne),
+            bySpatial('NE parcels', () => CONFIG.parcels.ne, 'parcels', PROBE.ne),
+            bySpatial('KS parcels', () => CONFIG.parcels.ks, 'parcels', PROBE.ks),
+            bySpatial('KS owner service', () => CONFIG.ownerServices.ks, 'parcels', PROBE.ks),
+            bySpatial('NE owner service', () => CONFIG.ownerServices.ne, 'parcels', PROBE.ne),
+            {
+                label: 'Routing engine',
+                run: async () => {
+                    const from = lastFix ? toLL(lastFix) : { lat: CONFIG.center[0], lng: CONFIG.center[1] };
+                    const r = await withTimeout(fetchRoute(from, destPoint(from, 90, 3000)), 25000, 'router');
+                    return `${fmtDist(r.distance)} / ${fmtDur(r.duration)}, ${r.steps.length} steps ` +
+                           `— first: "${r.steps[0] ? r.steps[0].text : '?'}"`;
+                }
+            },
+            {
+                label: 'Address search',
+                run: async () => {
+                    const hits = await withTimeout(searchOne('ks', 'CHESTNUT'), 25000, 'search');
+                    if (!hits.length) throw new Error('search for CHESTNUT returned nothing');
+                    return `${hits.length} hit(s) — e.g. "${formatAddress(hits[0].rec)}"`;
+                }
+            }
+        ];
+
+        lines.push('running…');
+        render();
+
+        for (const c of checks) {
+            let line;
+            try {
+                const r = await c.run();
+                if (r && r.warn) { fail++; line = `<span class="fail">WARN</span>  ${esc(c.label)}\n        ${esc(r.msg)}`; }
+                else { pass++; line = `<span class="pass"> OK </span>  ${esc(c.label)}\n        ${esc(String(r))}`; }
+            } catch (e) {
+                const msg = String((e && e.message) || e);
+                if (/not set/i.test(msg)) { skip++; line = `<span class="fail">SKIP</span>  ${esc(c.label)}\n        not configured`; }
+                else { fail++; line = `<span class="fail">FAIL</span>  ${esc(c.label)}\n        ${esc(msg)}`; }
+            }
+            lines[lines.length - 1] === 'running…' ? (lines[0] = line) : lines.push(line);
+            render();
+        }
+
+        render('Endpoints marked SKIP are blank in SETUP, which is a configuration\n' +
+               'state rather than a fault. FAIL means the service was reached and\n' +
+               'did not answer as expected — the URL or the filter is wrong.');
+        console.log(`livecheck: ${pass} ok, ${fail} failed, ${skip} not set`);
+        return { pass, fail, skip };
+    }
+
+    /* =======================================================================
        BOOT
        ======================================================================= */
     document.getElementById('btn-setup').addEventListener('click', openSetup);
+
+    /* Keep the map controls clear of the overlay however tall it currently is.
+       ResizeObserver rather than a mode hook, because the height changes for reasons
+       that are not mode changes — a route starting, a long county name wrapping. */
+    function syncUiTop() {
+        const h = document.getElementById('ui-layer').getBoundingClientRect().height;
+        document.documentElement.style.setProperty('--ui-top', Math.round(h + 6) + 'px');
+    }
+    if (window.ResizeObserver) {
+        new ResizeObserver(syncUiTop).observe(document.getElementById('ui-layer'));
+    }
+    window.addEventListener('orientationchange', () => setTimeout(syncUiTop, 250));
+    syncUiTop();
+
+    /* ---------------- Search & navigation wiring ---------------- */
+    document.getElementById('btn-search').addEventListener('click', openSearch);
+    document.getElementById('search-close').addEventListener('click', closeSearch);
+    document.getElementById('nav-cancel').addEventListener('click', endRoute);
+
+    searchEls.input.addEventListener('input', e => {
+        const term = e.target.value.trim();
+        clearTimeout(searchTimer);
+        // Debounced: one query per pause in typing, not one per character. On rural
+        // LTE the difference is the panel feeling instant versus queueing behind
+        // eight in-flight requests.
+        searchTimer = setTimeout(() => runSearch(term), CONFIG.search.debounceMs);
+    });
+    searchEls.input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+            clearTimeout(searchTimer);
+            runSearch(e.target.value.trim());
+        } else if (e.key === 'Escape') {
+            closeSearch();
+        }
+    });
 
     /* The GPS chip is a button, not just a readout. Without this a refusal on iOS is
        terminal: the chip reads DENIED for the rest of the shift with no way back. */
@@ -3362,6 +4746,12 @@
 
     if (QS.get('selftest') === '1') {
         runSelftest();
+    } else if (QS.get('livecheck') === '1') {
+        /* GPS still starts: the spatial checks query a corridor around your actual
+           position when there is one, so running this from the truck tests the ground
+           you are on rather than the configured default centre. */
+        startGeolocation(false);
+        runLiveCheck();
     } else {
         // Kick off GPS on load; the browser will prompt for permission.
         startGeolocation(false);

@@ -1,9 +1,27 @@
-# Iowa Tribe Field Map — Parcel & Address Terminal
+# Iowa Tribe Field Map — Responder Terminal
 
-A single-file web map for the Iowa Tribe of Kansas & Nebraska's own use (planning,
-NG911 / dispatch reference, and field work). It plots the reservation on a dark,
-touch-friendly base and pulls **per-parcel owner records live from public county /
-state assessor services** when you zoom in.
+A single-file web map for first responders working **Doniphan and Brown counties in
+Kansas and Richardson County in Nebraska**, and the Iowa Tribe of Kansas & Nebraska
+reservation that straddles them.
+
+It answers four questions without taking your hands off the wheel for long: **which
+county am I in**, **where is the reservation line**, **what address am I passing**, and
+**how do I get to the one I was given**.
+
+- **Jurisdiction at a glance** — each county is shaded its own colour and a banner
+  names the one your GPS fix is actually inside, with an `ON RESERVATION` chip when
+  you cross the line. Both are point-in-polygon against geometry already on the map,
+  so they keep working with no signal.
+- **Addresses as you drive** — houses accumulate in a feed as you pass them, address in
+  large type, which side of the road, how far off it, and the time.
+- **Search and route** — type an address, get turn-by-turn to it, with automatic
+  re-routing when you leave the line.
+- **Property records** — every field the public services publish, plus a one-tap handoff
+  into the county's own owner lookup.
+
+**Live at https://jward116.github.io/iowa-field-map/** — open that on the phone you take
+in the truck. It has to be the https link, not a local file: browsers only give a page
+your GPS location over https.
 
 **Live at https://jward116.github.io/iowa-field-map/** — open that on the phone you take
 in the truck. It has to be the https link, not a local file: browsers only give a page
@@ -35,39 +53,130 @@ or the service worker fails to parse.
 ## First run, on the phone you'll actually use
 
 1. Open the link above and allow location when asked.
-2. Tap the **⚙ gear** (bottom right) → **TEST ALL**. Every service reports back within a
-   few seconds: green with a real sample address means it works from your device, grey
-   means it isn't configured, red shows the exact error.
-3. Anything red or wrong — paste a corrected URL right there. It saves on that phone; no
-   redeploy. **COPY CONFIG** hands back the working set so it can become the default.
-4. While still on wifi, pan to the area you'll be driving and press **SAVE THIS AREA** so
-   the map still draws in dead zones.
-5. Tap **DRIVE**.
+2. Open `?livecheck=1` once. It hits every endpoint for real and prints a sample record
+   from each. Everything should read OK except the three owner/parcel slots marked
+   `not set`, which are deliberate — see **Owner records** below.
+3. While still on wifi, pan to the area you'll be driving and press **⚙ SETUP → SAVE
+   THIS AREA** so the map still draws in dead zones.
+4. Tap **DRIVE**.
 
 ## What's on the map
 
+Every endpoint below was verified against the live service, with the record counts
+they actually returned.
+
 | Layer | Source | Notes |
 |---|---|---|
-| Reservation boundary | Census TIGERweb AIANNH, `AIANNHCE = 2430` | Iowa (KS-NE) Reservation |
-| Off-reservation trust land | Census TIGERweb AIANNH (dashed) | verify parcel-level trust/fee against BIA LTRO |
-| County lines | Census TIGERweb `State_County/11` | Doniphan & Brown (KS), Richardson (NE), labeled |
-| KS address points | Kansas DASC statewide NG911 | house-level addresses on the Kansas side |
-| NE address points | **you configure** | slot ready; add a URL in SETUP |
-| NE parcels + owner | `giscat.ne.gov … TaxParcels2023/0` | tap a parcel for owner, situs, parcel id, acres, assessed value, land use |
-| KS parcels + owner | **you configure** | Kansas statewide ownership is often license-restricted — see below |
-| Address points (NG911) | optional local GeoJSON | tap for the address record |
-| Live GPS | browser geolocation | field position + accuracy ring; ◎ button re-centers |
+| Reservation boundary | TIGERweb AIANNHA/2, `AIANNH = '1590'` | Iowa (KS-NE) Reservation. Drawn heaviest — it is the line that changes who has authority |
+| Off-reservation trust land | TIGERweb AIANNHA/3, same code (dashed) | |
+| County shading | TIGERweb `State_County/11`, GEOIDs `20043`, `20013`, `31147` | Doniphan amber, Brown violet, Richardson teal; 12% fill so roads read through |
+| KS address points | Kansas NG911 statewide | **4,320 Doniphan + 6,237 Brown**. The only house-level source on the Kansas side |
+| NE address points | `giscat.ne.gov … Address_Points/0` | Richardson County, scoped by `COUNTY` |
+| NE parcels | `giscat.ne.gov … StatewideParcelsExternal/0` | situs, parcel id, acres, assessed value, legal description. Scoped to `County_ID = '147'` |
+| KS parcels | **none published** | no public service covers these counties — see below |
+| Routing | OSRM (`router.project-osrm.org`) | repointable in SETUP |
+| Live GPS | browser geolocation | patrol-car marker with heading; ◎ re-centers |
 
-**Kansas coverage matters here.** White Cloud is in Doniphan County, and the Nebraska
-parcel service stops at the state line while Kansas statewide parcel *ownership* is
-license-restricted. Kansas does publish its NG911 address points, so that service is what
-gives the Kansas side of the reservation any house-level coverage at all. Those records
-store an address as separate NENA fields (`ADDNUM`, `PRD`, `STREETNAME`, `STS`) rather
-than one string, so the map assembles them — `1302` + `N` + `Chay` + `Dr` → *1302 N Chay Dr*.
-Address points carry no owner name; parcel rows still show one.
+## Owner records
+
+**No free API publishes owner names for these three counties.** That was checked, not
+assumed:
+
+- **Kansas ORKA** (`KS_Parcels_ORKA_EB`) is described as statewide but returns only four
+  county codes — `CN`, `RA`, `SH`, `TH` — across all three of its layers. Doniphan and
+  Brown are not among them, so `parcels.ks.url` is deliberately blank rather than
+  pointing at a service that would report "0 parcels" forever.
+- **Doniphan County's own** assessor service answers `499 Token Required`.
+- **Nebraska's statewide parcels** carry `Ownership_Type` (a classification code, and
+  empty in practice) but no name field.
+
+So the map carries every field that *is* machine-readable and hands off for the name.
+Tapping a parcel or address gives **OWNER RECORD**, which copies the parcel ID to the
+clipboard and opens that county's own lookup:
+
+| County | Lookup |
+|---|---|
+| Doniphan, KS | `doniphangis.integritygis.com` |
+| Brown, KS | Kansas ORKA, `kansasgis.org/orka` |
+| Richardson, NE | `nebraskaassessorsonline.us` |
+
+None of the three accepts a parcel ID in the query string — ORKA hands out session
+URLs — hence the clipboard rather than a deep link that would quietly not work.
+
+If you obtain a licensed county feed, paste it into **SETUP → Kansas / Nebraska owner
+service**. Owner names then appear inline in popups and the drive feed with no redeploy;
+those sources already outrank the others, since they are the only ones that can supply a
+name.
+
+## Jurisdiction
+
+Which county you are standing in decides whose authority applies, so it is answered on
+the map rather than by reading a line off it. Each county carries its own tint and the
+banner names the one your fix is inside — from your GPS position, not the map centre,
+because the two differ the moment you pan.
+
+Richardson County is GEOID **31147**. It was `31153` — Sarpy County, ninety miles up the
+river in the Omaha metro — which left the entire Nebraska side of the reservation with
+no county line at all.
+
+A point mid-river can read `OUTSIDE COVERAGE AREA`: the Census county polygons meet at
+the state line and do not tile the water channel. That is the honest answer, not a bug.
+
+## How addresses are labelled
+
+NG911 records store an address as separate NENA fields rather than one string, and
+**the two states do not use the same field names**:
+
+| | house no. | pre-dir | street | type | post-dir | combined |
+|---|---|---|---|---|---|---|
+| Kansas | `HNO` | `PRD` | `RD` | `STS` | `POD` | `LABEL` |
+| Nebraska | `ADD_NUM` | `PRE_DIR` | `ST_NAME` | `ST_TYPE` | `POS_DIR` | `FULL_ADDR` |
+
+Only the Kansas dialect was recognised, so every Nebraska record fell through to
+component assembly, failed to find a house number, and rendered as a bare street name —
+`1107 Harlan Street` logged as *Harlan Street*. The house number is the entire point of
+the record on a response. Both dialects are covered now and `?selftest=1` asserts a real
+record shape from each state.
+
+Labels also carry the context that tells two similar addresses apart — there is a
+`100 Chestnut St` in both White Cloud and Troy:
+
+- **City**, preferring the incorporated place, falling back to the postal community when
+  the record says `UNINCORPORATED` (which is a value in these datasets, not a blank).
+- **State and ZIP**, inferred from the county when the record omits the state.
+- **`ESN`** — the emergency service number, i.e. which fire/EMS/law district.
+- **Unit, building, floor, room** where present. Which apartment matters on a call.
 
 Parcels only render at zoom **15+** (the statewide layers are dense). The header shows
 `PARCELS: ZOOM IN` / `PARCELS: LIVE`, and tapping the map reads out coordinates.
+
+## Search and routing
+
+**GO** in the header opens a full-screen search. It geocodes against the same NG911
+services the drive engine uses, scoped to the three counties — a hit is therefore
+guaranteed to be somewhere you can actually be dispatched, and each row arrives carrying
+its ESN and municipality.
+
+Pick a result and it routes, with a next-manoeuvre banner, distance and ETA, the full
+turn list, and automatic re-routing after three consecutive fixes more than 50 m off the
+line. Tapping any row in the drive feed offers **ROUTE HERE**, because the reason that
+feed exists is that a house you drove past is one you may have to go back to.
+
+Three things worth knowing:
+
+- **The Kansas service takes ~18 s to answer any attribute query.** That is the service,
+  not the query — a bare `COUNTY = 'DONIPHAN COUNTY'` count takes the same. Its *spatial*
+  queries are fast, which is why the drive engine is unaffected. The search timeout is
+  set above that floor; at 12 s every Kansas search silently returned "no match".
+- **Results render per-service as they arrive.** Nebraska answers in well under a second;
+  holding its results back for Kansas means staring at `SEARCHING…` with the answer
+  already in hand.
+- **The cached corridor is searched first**, instantly and with no request, so the house
+  you just passed comes up before anything goes out to the network.
+
+Routing responses are never cached, in memory or by the service worker. A route is
+computed from where you were when you asked; replaying a stored one would give
+turn-by-turn from a previous position while looking entirely current.
 
 ## Drive mode
 
@@ -78,8 +187,13 @@ parcel layers, zoom and centre exactly as you left them.
 
 In DRIVE mode the map follows your GPS at zoom 17 with your position low on screen for
 look-ahead, and **house addresses accumulate in a feed as you drive past them** — address
-in large type, owner name inline, how far off the road it was, which side, and the time.
-Tap a row to fly there and open the full parcel record.
+in large type, how far off the road it was, which side, and the time. Tap a row to fly
+there, open the full record, or route to it.
+
+Your position is drawn as a **patrol car** pointed along your heading, with an
+alternating light bar: on a busy map, motion finds the vehicle faster than colour does.
+Until there is a heading worth trusting it stays a plain dot — a car pointed the wrong
+way is a lie, a dot is not.
 
 - **Follow-lock** releases when you grab the map and resumes 12 s after you let go, or
   immediately via the ◎ button. Address logging is independent of the camera and keeps
@@ -134,7 +248,29 @@ Dropped fixes at high compression is the single most valuable test here: it is h
 segment-distance behaviour above is verified, and the failure it catches would otherwise
 only show up at 55 mph on a real road.
 
-`?selftest=1` runs the geometry, dedup and CSV-escaping assertions and prints the results.
+### The two test modes
+
+**`?selftest=1`** — 81 assertions over the pure logic: geometry, point-in-polygon,
+dedup, CSV escaping, search query construction, OSRM step parsing, and address
+assembly against **real record shapes captured from both states**. Invented fixtures
+are exactly what let the Nebraska bug survive, since the old field lists parse a Kansas
+record perfectly.
+
+**`?livecheck=1`** — every configured endpoint hit for real, with a sample record
+printed back. This is the one that matters. `selftest` proves the code is right about
+data it is handed; `livecheck` proves the data is there at all, and that is the failure
+this app actually had — a reservation filtered on a field that does not exist, a county
+GEOID pointing at Sarpy, and a parcel service that had 404'd. No amount of unit testing
+surfaces any of those.
+
+Each service is probed over ground it actually covers; testing the Nebraska services
+from White Cloud reports a false failure, because White Cloud sits on the Kansas bank
+and the nearest Richardson County address is further out than any sensible radius. A
+live GPS fix overrides the probe point, so from the truck the question becomes whether
+the service works *here*.
+
+Run `livecheck` after any endpoint change, and from the phone when something looks wrong
+in the field.
 
 ## Offline
 
@@ -164,35 +300,34 @@ built-in defaults, and RESET DEFAULTS to clear them.
 
 The built-in defaults live in the `CONFIG` block at the top of `index.html`:
 
-- **`parcels.ks.url`** — set this to the Brown/Doniphan County appraiser service or the
-  Kansas DASC parcel service you are licensed to use. Left blank by default because
-  statewide KS ownership is commonly access-restricted.
-- **`addressPoints.url`** — point at a GeoJSON file (default `data/address_points.geojson`)
-  or an ArcGIS feature service of your NG911 points. Copy `data/address_points.sample.geojson`
-  to `data/address_points.geojson` and populate it. The loader fails silently if absent.
-- **`reservation` / `trust`** — if the boundary doesn't draw, confirm the TIGERweb
-  AIANNHA sublayer index and field name at `.../AIANNHA/MapServer?f=json`.
+- **`ownerServices.ks` / `ownerServices.ne`** — blank. Paste a licensed county appraiser
+  feed here (or in SETUP) and owner names appear inline everywhere.
+- **`parcels.ks.url`** — blank, because no public service covers Doniphan or Brown. See
+  **Owner records** above for what was checked.
+- **`routing.url`** — OSRM's public server. Repoint it at your own instance and the
+  request shape is identical.
+- **`jurisdiction.byGeoid`** — the county colours and names. Adding a fourth county means
+  adding its GEOID here, to `counties.where`, and to `COUNTY_LOOKUPS`; `?selftest=1`
+  asserts those three stay in agreement.
+- **`addressPoints.url`** — an optional local GeoJSON (default
+  `data/address_points.geojson`) for tribal points not in either state's NG911. Copy
+  `data/address_points.sample.geojson` and populate it. Absent is a normal state.
 
 The popup field-extraction is **schema-tolerant**: it matches owner/situs/parcel-id/acres/
 value/land-use by keyword, so it works across differing county schemas, and lists any
-remaining attributes under "All attributes."
+remaining attributes under "All attributes." Two keywords are deliberately excluded —
+`location`, because Nebraska's parcel layer uses it for a classification code and
+matching it labelled parcels `03` where an address belongs, and `ownership_type`, which
+is a category rather than a name.
 
-## Data provenance & privacy
+## Where the data comes from
 
-- Parcel ownership is **public county assessor data**, fetched live in the browser at view
-  time — **none of it is stored in this repository.** Only the map code and a format-only
-  sample (no owner names) are committed.
-- **Trust vs. fee status is not asserted** by this map; confirm against BIA LTRO or county
-  records (owner shown as "United States in trust for the Iowa Tribe…" indicates trust).
-- Re-verify time-sensitive designations on the day of use; assessor values update annually.
-- **The drive-mode log is a record of which houses a vehicle drove past, with owner names,
-  and it may sit on a shared field device.** It is stored in that browser's local storage
-  and **is never transmitted anywhere**. `CLEAR` wipes it, and setting
-  `CONFIG.storage.enabled = false` stops it surviving a reload at all. Worth a decision
-  before this goes on real devices — it is a governance question, not a technical one.
-- Drive mode is **passenger use**. The feed needs no interaction to work and can announce
-  each address with a chime so the driver never has to look at the screen; a one-time
-  acknowledgement says so before drive mode opens.
+Parcel and address records are **public county and state data, fetched live in the
+browser at view time** — none of it is stored in this repository. Only the map code and a
+format-only sample are committed.
 
-*Public-domain government sourcing. Intended for the tribe's internal planning, dispatch,
-and field reference.*
+**The drive-mode log records which houses a vehicle drove past.** It is stored in that
+browser's local storage and is never transmitted anywhere. `CLEAR` wipes it; setting
+`CONFIG.storage.enabled = false` stops it surviving a reload at all.
+
+*Public-domain government sourcing.*
