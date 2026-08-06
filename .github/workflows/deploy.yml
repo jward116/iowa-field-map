@@ -1,0 +1,101 @@
+# Deploy the field map to GitHub Pages.
+#
+# This replaces GitHub's legacy "deploy from a branch" pipeline, which failed twice
+# in a row on this repo — once hanging for 15 minutes before cancelling itself, once
+# sitting queued without ever starting — and left a four-month-old build serving on
+# the phone that field crews actually use. That pipeline gives no logs and no re-run
+# button. This one gives both.
+#
+# `configure-pages` with `enablement: true` will switch the Pages source to GitHub
+# Actions by itself. If your org policy blocks that, it is a one-time manual change:
+#   Settings → Pages → Build and deployment → Source → "GitHub Actions"
+
+name: Deploy to Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:        # so a stuck or failed deploy can be re-run by hand
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let an in-flight deploy finish rather than cancelling it. Successive merges
+# previously produced a run of "cancelled (superseded)" builds and no deploy at all.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # A fast, dependency-free gate. It cannot catch everything the browser suite does,
+  # but it does catch the class of mistake that would publish a broken app: a syntax
+  # error in the inline script, a missing .nojekyll, or a build stamp left unbumped.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .nojekyll must exist
+        run: |
+          test -f .nojekyll || {
+            echo "::error::.nojekyll is missing. Without it Pages runs this site through"
+            echo "::error::Jekyll, which is what hung the old pipeline. Re-add it."
+            exit 1
+          }
+
+      - name: index.html inline script parses
+        run: |
+          python3 - <<'PY'
+          import re, pathlib, sys
+          html = pathlib.Path('index.html').read_text()
+          blocks = re.findall(r'<script>(.*?)</script>', html, re.S)
+          if not blocks:
+              print('::error::No inline script found in index.html'); sys.exit(1)
+          pathlib.Path('/tmp/app.js').write_text(blocks[-1])
+          PY
+          node --check /tmp/app.js
+
+      - name: service worker parses
+        run: node --check sw.js
+
+      - name: build stamp is present and reported
+        run: |
+          stamp=$(grep -oP "build:\s*'\K[^']+" index.html | head -1)
+          if [ -z "$stamp" ]; then
+            echo "::error::CONFIG.build is missing from index.html"; exit 1
+          fi
+          echo "Deploying build stamp: $stamp"
+          echo "### Build stamp \`$stamp\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Open SETUP on the phone and confirm it shows this exact value." >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    needs: check
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          # Switches the Pages source to GitHub Actions without anyone visiting
+          # Settings. Harmless if it is already set.
+          enablement: true
+
+      # Uploads the repo as-is; the action excludes .git and .github itself.
+      # There is no build step because there is deliberately nothing to build.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Say where it landed
+        run: |
+          echo "### Deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.deployment.outputs.page_url }}" >> "$GITHUB_STEP_SUMMARY"
