@@ -15,18 +15,18 @@ name: Deploy to Pages
 on:
   push:
     branches: [main]
+  # Run the gate on PRs too. It exists to stop a syntax error reaching the phone, and
+  # before this it only ran AFTER merge — by which point the broken build is already
+  # what Pages is serving. The deploy job stays main-only; see its `if` below.
+  pull_request:
+    branches: [main]
   workflow_dispatch:        # so a stuck or failed deploy can be re-run by hand
 
+# Read-only by default. The Pages write and OIDC tokens are granted to the deploy job
+# alone, so a check run triggered by a pull request never carries a credential that
+# could publish.
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-# Let an in-flight deploy finish rather than cancelling it. Successive merges
-# previously produced a run of "cancelled (superseded)" builds and no deploy at all.
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
   # A fast, dependency-free gate. It cannot catch everything the browser suite does,
@@ -72,7 +72,21 @@ jobs:
 
   deploy:
     needs: check
+    # Never from a pull request. Without this, adding the pull_request trigger above
+    # would publish every PR branch straight over the live site.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    # Let an in-flight deploy finish rather than cancelling it. Successive merges
+    # previously produced a run of "cancelled (superseded)" builds and no deploy at all.
+    # Scoped to this job, not the workflow: at workflow level a PR's check run joins the
+    # same queue and sits waiting behind an unrelated deploy before it can even start.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
