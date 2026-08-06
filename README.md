@@ -17,9 +17,16 @@ directly, so the address-points file and the offline service worker can load.
 Open **⚙ SETUP** — the build stamp is the first line, e.g. `build 2026-08-06.4 · offline cache active`.
 `?selftest=1` prints it too. If that doesn't match what was last merged, the deploy didn't land.
 
-Check the deploy itself under the repo's **Actions → "pages build and deployment"**. A run whose
-`build` job is cancelled and whose `deploy` job is skipped means the site is still serving the
+Check the deploy itself under the repo's **Actions → "Deploy to Pages"**. Every run prints the
+build stamp it published in the run summary, so comparing that against what SETUP shows on the
+phone is a two-second check. A failed or skipped `deploy` job means the site is still serving the
 previous commit, however green the merge looked.
+
+Deploys run through `.github/workflows/deploy.yml`, not GitHub's legacy branch pipeline. That
+pipeline failed twice on this repo — hanging 15 minutes before cancelling itself, then queueing
+indefinitely — with no logs and no way to retry, while a four-month-old build stayed live. The
+workflow gives real logs, a **Re-run jobs** button, and refuses to publish if the inline script
+or the service worker fails to parse.
 
 > **`.nojekyll` must stay in the repo root.** Without it, GitHub Pages runs every deploy through
 > Jekyll. This site uses no Jekyll features, so that step is pure risk — it is what hung a deploy
