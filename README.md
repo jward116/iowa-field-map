@@ -195,6 +195,27 @@ alternating light bar: on a busy map, motion finds the vehicle faster than colou
 Until there is a heading worth trusting it stays a plain dot — a car pointed the wrong
 way is a lie, a dot is not.
 
+### What's coming up
+
+Above the map, the next three addresses **ahead of you** — distance, which side, and the
+number, nearest one largest:
+
+```
+200 ft  L   210 MAIN ST
+240 ft  R   213 MAIN ST
+240 ft  L   208 MAIN ST
+```
+
+The feed below is a record of houses already passed. This is the opposite, and it is the
+one you want when you are *looking* for a number rather than recording one.
+
+A candidate counts as ahead when it projects forward onto your heading within 400 m
+(~16 s at 55 mph) and sits within 45 m of the line you are travelling. Measuring the
+forward component separately from the lateral offset is what keeps the next parallel
+road out of the list — a house there may be 80 m away, but it is 80 m sideways, not
+80 m up the road. It reads entirely from the corridor already cached, so it costs no
+network and keeps working with no signal.
+
 - **Follow-lock** releases when you grab the map and resumes 12 s after you let go, or
   immediately via the ◎ button. Address logging is independent of the camera and keeps
   running while you pan.
@@ -236,6 +257,8 @@ the HUD badges (`NG911: 42` / `NE PARCEL: ERROR` / `KS PARCEL: NOT SET`).
 | `engine.maxSegment` | 2000 m | above this we assume a backgrounded phone resumed elsewhere and don't log the straight line between |
 | `engine.sourceTimeoutMs` | 15 s | a hung request must never stop a source prefetching for the rest of the shift |
 | `engine.cacheCap` | 4000 | ~1 MB; evicted farthest-from-you first, so the road ahead survives |
+| `ahead.range` | 400 m | ~16 s at 55 mph — long enough to read and act on, short enough that the list stays the road you are on |
+| `ahead.corridor` | 45 m | deliberately under `passRadius`: this list must not fill with the next parallel road |
 
 ### Testing it without driving
 
@@ -250,11 +273,11 @@ only show up at 55 mph on a real road.
 
 ### The two test modes
 
-**`?selftest=1`** — 81 assertions over the pure logic: geometry, point-in-polygon,
-dedup, CSV escaping, search query construction, OSRM step parsing, and address
-assembly against **real record shapes captured from both states**. Invented fixtures
-are exactly what let the Nebraska bug survive, since the old field lists parse a Kansas
-record perfectly.
+**`?selftest=1`** — 87 assertions over the pure logic: geometry, point-in-polygon,
+dedup, CSV escaping, search query construction, OSRM step parsing, the approach
+corridor, and address assembly against **real record shapes captured from both
+states**. Invented fixtures are exactly what let the Nebraska bug survive, since the
+old field lists parse a Kansas record perfectly.
 
 **`?livecheck=1`** — every configured endpoint hit for real, with a sample record
 printed back. This is the one that matters. `selftest` proves the code is right about

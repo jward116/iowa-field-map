@@ -663,6 +663,52 @@
         .sim-btns { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
         .sim-btns .feed-btn { height: 30px; padding: 0 9px; font-size: 10px; }
 
+        /* ---------- Approaching addresses ----------
+           The feed is a record of houses already passed. This is the opposite: what is
+           coming up, in the direction of travel, so a house number can be found on the
+           approach rather than confirmed after driving by it. Shown only in DRIVE. */
+        #ahead {
+            display: none;
+            border-top: 1px solid #222;
+            padding: 5px 12px 7px;
+        }
+        body[data-mode="drive"] #ahead.on { display: block; }
+        .ahead-row {
+            display: flex;
+            align-items: baseline;
+            gap: 9px;
+            line-height: 1.45;
+        }
+        .ahead-row + .ahead-row { opacity: 0.55; }
+        .ahead-dist {
+            flex: none;
+            width: 58px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 13px;
+            color: #ffcc33;
+            text-align: right;
+        }
+        .ahead-side {
+            flex: none;
+            width: 16px;
+            font-size: 12px;
+            font-weight: 900;
+            color: #8a8a8a;
+        }
+        .ahead-addr {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: 15px;
+            font-weight: 800;
+            color: #eaeaea;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .ahead-row + .ahead-row .ahead-addr { font-size: 13px; font-weight: 700; }
+        .ahead-row + .ahead-row .ahead-dist { font-size: 11px; }
+        #ahead-none { font-size: 11px; color: #6a6a6a; letter-spacing: 0.5px; }
+
         /* ---------- Address search ----------
            Full-screen on a phone: typing an address one-handed in a moving vehicle
            needs the whole keyboard and big targets, not a dropdown under a header. */
@@ -921,6 +967,7 @@
                 <button type="button" class="hud-btn" id="btn-setup">SETUP</button>
             </div>
             <div class="hud-sources" id="hud-sources"></div>
+            <div id="ahead"><div id="ahead-none">LOOKING AHEAD&hellip;</div></div>
         </div>
     </div>
 
@@ -1216,6 +1263,18 @@
 
         sources: { ng911: true, parcelNe: true, parcelKs: true, addrKs: true, addrNe: true,
                    ownerKs: true, ownerNe: true },
+
+        /* ---------------- Approaching addresses ----------------
+           What is coming up, as opposed to the feed's record of what was passed.
+           Read off the corridor already cached, so it costs no network. */
+        ahead: {
+            range:    400,   // m of road ahead to report. ~16 s at 55 mph — enough to read
+                             // and act on, short enough that the list stays the road you are on.
+            minRange: 15,    // m. Below this it is level with you, not ahead.
+            corridor: 45,    // m either side of the line of travel. Under passRadius on purpose:
+                             // this list must not fill with houses on the next parallel road.
+            show:     3      // one to act on, two for context. More is unreadable at speed.
+        },
 
         /* ---------------- Address search ----------------
            Geocoding runs against the same NG911 services the drive engine uses, scoped
@@ -2331,6 +2390,7 @@
             applyDriveCamera(f);
             updateVehicle(f);
             updateHud(f);
+            renderAhead(f);         // what is coming up, not what was passed
         }
     }
 
@@ -2532,6 +2592,66 @@
         }
         hits.sort((a, b) => a.d - b.d);
         return hits;
+    }
+
+    /* ---------------- Approaching addresses ----------------
+       scanPass answers "what did I just go past". This answers "what is coming up",
+       which is the question you have when you are looking for a house number rather
+       than recording one.
+
+       A candidate counts as ahead when it projects forward onto your heading within
+       CONFIG.ahead.range, and sits within CONFIG.ahead.corridor of the line you are
+       travelling. Measuring the forward component separately from the lateral offset
+       is what keeps a house on the next parallel road out of the list: it may be 80 m
+       away, but it is 80 m sideways, not 80 m up the road.
+
+       Everything comes from the corridor already cached, so this costs no network and
+       keeps working with no signal. */
+    function scanAhead(f) {
+        if (!f || !f.headingKnown) return [];
+        const here = toLL(f.latlng);
+        const cfg = CONFIG.ahead;
+        // Unit vector along the heading, in local metres.
+        const rad = f.headingDeg * DEG;
+        const fx = Math.sin(rad), fy = Math.cos(rad);
+        const kx = 111320 * Math.cos(here.lat * DEG), ky = 110574;
+
+        const out = [];
+        for (const c of addrCache.values()) {
+            if (!c.address || logged.has(c.id)) continue;
+            const dx = (c.lng - here.lng) * kx, dy = (c.lat - here.lat) * ky;
+            const along = dx * fx + dy * fy;                 // + is ahead of you
+            if (along < cfg.minRange || along > cfg.range) continue;
+            const lateral = dx * fy - dy * fx;               // + is to your right
+            if (Math.abs(lateral) > cfg.corridor) continue;
+            out.push({ c, along, side: lateral >= 0 ? 'R' : 'L' });
+        }
+        out.sort((a, b) => a.along - b.along);
+        return out.slice(0, cfg.show);
+    }
+
+    function renderAhead(f) {
+        const el = document.getElementById('ahead');
+        if (!el) return;
+        if (MODE !== 'drive') { el.classList.remove('on'); return; }
+        el.classList.add('on');
+
+        const list = scanAhead(f);
+        if (!list.length) {
+            el.innerHTML = '<div id="ahead-none">' +
+                (f && f.headingKnown ? 'NO ADDRESSES AHEAD' : 'WAITING FOR HEADING') + '</div>';
+            return;
+        }
+        el.innerHTML = list.map(h => {
+            // Feet under a tenth of a mile: on approach that is the useful unit.
+            const ft = h.along / 0.3048;
+            const dist = ft < 528 ? Math.round(ft / 10) * 10 + ' ft'
+                                  : (h.along / 1609.344).toFixed(1) + ' mi';
+            return `<div class="ahead-row">` +
+                   `<span class="ahead-dist">${esc(dist)}</span>` +
+                   `<span class="ahead-side">${h.side}</span>` +
+                   `<span class="ahead-addr">${esc(h.c.address)}</span></div>`;
+        }).join('');
     }
 
     /* Late-arriving candidates.
@@ -3446,6 +3566,7 @@
 
         if (curFix) { applyDriveCamera(curFix); updateVehicle(curFix); updateHud(curFix); }
         else { startGeolocation(true); }
+        renderAhead(curFix);        // populate immediately rather than on the next fix
     }
 
     function exitDrive() {
@@ -4442,6 +4563,50 @@
         ok('pick prefers an exact match over substring order',
             pick({ Land_Value: 1, Total_Assessed_Value: 9 },
                  ['total_val', 'assess', 'value']).field === 'Total_Assessed_Value');
+
+        /* --- approaching addresses --- */
+        (() => {
+            const at = { lat: 39.9772, lng: -95.2974 };
+            const fix = { latlng: at, headingKnown: true, headingDeg: 90 };   // driving east
+            const put = (id, pt, addr) => addrCache.set(id,
+                { id, lat: pt.lat, lng: pt.lng, address: addr, source: 'test', props: {} });
+            const saved = new Map(addrCache);
+            addrCache.clear();
+
+            put('a', destPoint(at, 90, 150), '150 AHEAD ST');      // 150 m ahead
+            put('b', destPoint(at, 90, 320), '320 AHEAD ST');      // 320 m ahead
+            put('c', destPoint(at, 270, 200), '200 BEHIND ST');    // behind
+            put('d', destPoint(at, 90, 900), '900 TOOFAR ST');     // beyond range
+            const ahead = scanAhead(fix);
+            ok('ahead: reports only what is in front', ahead.length === 2, String(ahead.length));
+            ok('ahead: nearest first', ahead[0] && ahead[0].c.address === '150 AHEAD ST',
+                ahead[0] && ahead[0].c.address);
+
+            // The case that makes this worth doing: a house on the parallel road is
+            // close in a straight line but is not on the road you are driving.
+            addrCache.clear();
+            put('p', destPoint(destPoint(at, 90, 100), 0, 120), 'PARALLEL RD');
+            ok('ahead: a house on the next road over is excluded', scanAhead(fix).length === 0);
+
+            // Side of the road, from the driver's seat heading east.
+            addrCache.clear();
+            put('r', destPoint(destPoint(at, 90, 100), 180, 25), 'SOUTH SIDE');
+            const rr = scanAhead(fix);
+            ok('ahead: south of an eastbound track is on the right',
+                rr.length === 1 && rr[0].side === 'R', rr[0] && rr[0].side);
+
+            addrCache.clear();
+            put('l', destPoint(destPoint(at, 90, 100), 0, 25), 'NORTH SIDE');
+            const ll = scanAhead(fix);
+            ok('ahead: north of an eastbound track is on the left',
+                ll.length === 1 && ll[0].side === 'L', ll[0] && ll[0].side);
+
+            ok('ahead: nothing reported without a trustworthy heading',
+                scanAhead({ latlng: at, headingKnown: false }).length === 0);
+
+            addrCache.clear();
+            saved.forEach((v, k) => addrCache.set(k, v));
+        })();
 
         /* --- point in polygon: the jurisdiction banner --- */
         const holed = { type: 'Polygon', coordinates: [
