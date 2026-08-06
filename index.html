@@ -190,6 +190,19 @@
         .parcel-popup details { margin-top: 6px; }
         .parcel-popup summary { cursor: pointer; color: #8fbf8f; font-size: 11px; }
 
+        /* County name labels — quiet enough to read past, legible at speed */
+        .county-label {
+            background: transparent;
+            border: 0;
+            box-shadow: none;
+            color: #8899aa;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 2px;
+            text-shadow: 0 0 4px #000, 0 0 8px #000;
+        }
+        .county-label::before { display: none; }
+
         /* Layer control legibility on dark */
         .leaflet-control-layers {
             background: rgba(15,15,15,0.95);
@@ -302,6 +315,7 @@
         body[data-mode="drive"] .leaflet-control-layers,
         body[data-mode="drive"] .leaflet-control-zoom,
         body[data-mode="drive"] .locate-bar,
+        body[data-mode="drive"] .setup-bar,
         body[data-mode="drive"] #readout { display: none; }
         /* Drive mode REMOVES the parcel layers, so a "PARCELS: LIVE" chip would be
            telling the driver something untrue. The per-source badges in the HUD are
@@ -318,6 +332,12 @@
             .status-indicator { font-size: 10px; padding: 3px 6px; }
             .hud-row { gap: 10px; }
             .hud-speed { font-size: 30px; min-width: 52px; }
+            /* The map is the point; don't let the HUD push it off the screen. */
+            .hud-spacer { display: none; }
+            .hud-btn { height: 30px; padding: 0 9px; font-size: 10px; }
+            .hud-sources { gap: 4px; margin-top: 6px; }
+            .hud-sources .status-indicator { font-size: 9px; padding: 2px 5px; letter-spacing: 0; }
+            #drive-hud { padding: 6px 10px 8px; }
         }
 
         /* Position arrow. leaflet-rotate positions marker icons in the *unrotated*
@@ -583,6 +603,60 @@
         }
         #ack-box h4 { margin: 0 0 8px; color: #ffcc33; font-size: 14px; letter-spacing: 1px; }
 
+        /* ---------- Setup / service check ---------- */
+        #setup-modal {
+            display: none;
+            position: absolute;
+            inset: 0;
+            z-index: 1400;
+            background: rgba(0,0,0,0.9);
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 16px;
+        }
+        #setup-modal.on { display: block; }
+        #setup-box {
+            max-width: 620px;
+            margin: 0 auto;
+            background: #0d0d0d;
+            border: 1px solid #333;
+            border-radius: 5px;
+            padding: 16px 18px;
+            color: #ddd;
+            font-size: 13px;
+        }
+        #setup-box h4 { margin: 0 0 8px; color: #00ff00; font-size: 14px; letter-spacing: 1px; }
+        .setup-intro { margin: 0 0 14px; color: #9a9a9a; font-size: 12px; line-height: 1.6; }
+        .setup-row { border-top: 1px solid #222; padding: 12px 0; }
+        .setup-head {
+            display: flex; align-items: center; gap: 8px;
+            flex-wrap: wrap; margin-bottom: 6px;
+        }
+        .setup-name { font-weight: 700; color: #eaeaea; font-size: 12px; flex: 1 1 auto; min-width: 0; }
+        .setup-row input[type=text] {
+            width: 100%;
+            box-sizing: border-box;
+            background: #060606;
+            color: #cfcfcf;
+            border: 1px solid #333;
+            border-radius: 3px;
+            padding: 8px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11px;
+        }
+        .setup-result {
+            margin-top: 6px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11px;
+            line-height: 1.5;
+            word-break: break-word;
+            white-space: pre-wrap;
+        }
+        .setup-result.ok   { color: #33ff77; }
+        .setup-result.bad  { color: #ff6666; }
+        .setup-result.warn { color: #ffcc33; }
+        .setup-result.idle { color: #777; }
+
         /* ---------- Selftest panel ---------- */
         #selftest {
             display: none;
@@ -625,6 +699,7 @@
                 <div class="hud-stat"><b id="hud-count">0</b> LOGGED</div>
                 <div class="hud-spacer"></div>
                 <button type="button" class="hud-btn" id="btn-headingup" aria-pressed="false">HDG UP</button>
+                <button type="button" class="hud-btn" id="btn-setup">SETUP</button>
             </div>
             <div class="hud-sources" id="hud-sources"></div>
         </div>
@@ -642,7 +717,7 @@
         <div id="feed-handle" title="Tap to resize"></div>
         <div id="feed-toolbar">
             <button type="button" class="feed-btn" id="btn-filter-all" aria-pressed="true">ALL</button>
-            <button type="button" class="feed-btn" id="btn-filter-ng911" aria-pressed="false">NG911</button>
+            <button type="button" class="feed-btn" id="btn-filter-address" aria-pressed="false">ADDRESS</button>
             <button type="button" class="feed-btn" id="btn-filter-parcel" aria-pressed="false">PARCEL</button>
             <button type="button" class="feed-btn" id="btn-csv">CSV</button>
             <button type="button" class="feed-btn" id="btn-geojson">GEOJSON</button>
@@ -692,6 +767,22 @@
         <div class="sim-btns">
             <button type="button" class="feed-btn" id="ack-ok">UNDERSTOOD</button>
             <button type="button" class="feed-btn" id="ack-cancel">CANCEL</button>
+        </div>
+    </div></div>
+
+    <div id="setup-modal"><div id="setup-box">
+        <h4>SETUP &amp; SERVICE CHECK</h4>
+        <p class="setup-intro">Press <b>TEST</b> on each service to see whether it answers from
+        this device, right where you are standing. Anything you change here is saved on this
+        phone only &mdash; no redeploy, no code change.</p>
+        <div id="setup-list"></div>
+        <h5 style="margin:16px 0 6px;color:#ffcc33;font-size:11px;letter-spacing:1px">OFFLINE MAP</h5>
+        <div id="setup-offline"></div>
+        <div class="sim-btns" style="margin-top:16px">
+            <button type="button" class="feed-btn" id="setup-testall">TEST ALL</button>
+            <button type="button" class="feed-btn" id="setup-copy">COPY CONFIG</button>
+            <button type="button" class="feed-btn danger" id="setup-reset">RESET DEFAULTS</button>
+            <button type="button" class="feed-btn" id="setup-close">CLOSE</button>
         </div>
     </div></div>
 
@@ -755,6 +846,41 @@
             color: '#00ff00'
         },
 
+        /* Statewide NG911 address point SERVICES — point addresses queried live, the
+           same way parcels are. This is what gives the Kansas side of the reservation
+           any coverage at all: the NE parcel service stops at the state line and
+           Kansas statewide parcel ownership is license-restricted, but Kansas
+           publishes its NG911 address points for public use.
+
+           These endpoints could not be reached from the machine that wrote this file,
+           so treat them as best-known rather than confirmed — open SETUP and press
+           TEST to find out in a couple of seconds, and correct the URL right there if
+           it is wrong. No redeploy needed; the override is saved on the device. */
+        addressServices: {
+            ks: {
+                label: 'KS NG911 — statewide address points',
+                url:   'https://services.kansasgis.org/arcgis4/rest/services/NG911/NG911_AddressPoints/MapServer/0',
+                on:    true
+            },
+            ne: {
+                label: 'NE NG911 — statewide address points',
+                url:   '',              // not configured; add yours and press TEST
+                on:    true
+            }
+        },
+
+        // County lines for the ground actually driven. GEOID = state FIPS + county FIPS.
+        counties: {
+            url:   'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/11',
+            where: "GEOID IN ('20043','20013','31153')",   // Doniphan KS, Brown KS, Richardson NE
+            // TIGERweb sublayer schemas drift between vintages, so if GEOID is absent
+            // the layer retries with the split state/county fields before giving up.
+            whereFallback: "(STATE='20' AND COUNTY IN ('043','013')) OR (STATE='31' AND COUNTY='153')",
+            color: '#8899aa',           // muted steel — must not read as reservation or trust land
+            labels: true,
+            on:    true
+        },
+
         /* ---------------- Drive mode ---------------- */
         drive: {
             zoom: 17,
@@ -798,7 +924,7 @@
             parcelLimit:    1500
         },
 
-        sources: { ng911: true, parcelNe: true, parcelKs: true },
+        sources: { ng911: true, parcelNe: true, parcelKs: true, addrKs: true, addrNe: true },
 
         storage: {
             // Set false if policy prefers the pass log NOT survive a reload.
@@ -815,6 +941,38 @@
     /* ======================================================================= */
 
     const QS = new URLSearchParams(location.search);
+
+    /* ---------------- Per-device service overrides ----------------
+       Applied here, immediately after CONFIG and BEFORE any layer or source is
+       built from it, so a URL corrected in the SETUP screen takes effect on the
+       next load without touching the code. Every endpoint in this file was
+       unreachable from the machine that wrote it, so being able to fix one in the
+       field — from the truck, with no redeploy — is not a nicety. */
+    const SERVICE_SLOTS = [
+        ['addr-ks',    'Kansas NG911 address points',   () => CONFIG.addressServices.ks.url, v => CONFIG.addressServices.ks.url = v, 'query'],
+        ['addr-ne',    'Nebraska NG911 address points', () => CONFIG.addressServices.ne.url, v => CONFIG.addressServices.ne.url = v, 'query'],
+        ['parcel-ne',  'Nebraska parcels (owner)',      () => CONFIG.parcels.ne.url,         v => CONFIG.parcels.ne.url = v,         'query'],
+        ['parcel-ks',  'Kansas parcels (owner)',        () => CONFIG.parcels.ks.url,         v => CONFIG.parcels.ks.url = v,         'query'],
+        ['counties',   'County lines',                  () => CONFIG.counties.url,           v => CONFIG.counties.url = v,           'query'],
+        ['reservation','Reservation boundary',          () => CONFIG.reservation.url,        v => CONFIG.reservation.url = v,        'query'],
+        ['trust',      'Off-reservation trust land',    () => CONFIG.trust.url,              v => CONFIG.trust.url = v,              'query'],
+        ['ng911file',  'Local address file (GeoJSON)',  () => CONFIG.addressPoints.url,      v => CONFIG.addressPoints.url = v,      'file']
+    ];
+    const OVERRIDE_KEY = 'iowa-field-map.overrides.v1';
+
+    function loadOverrides() {
+        let saved = {};
+        try { saved = JSON.parse(localStorage.getItem(OVERRIDE_KEY) || '{}'); } catch (e) { return; }
+        for (const [id, , , set] of SERVICE_SLOTS) {
+            if (typeof saved[id] === 'string') set(saved[id]);
+        }
+    }
+    function saveOverrides() {
+        const out = {};
+        for (const [id, , get] of SERVICE_SLOTS) out[id] = get();
+        try { localStorage.setItem(OVERRIDE_KEY, JSON.stringify(out)); } catch (e) {}
+    }
+    if (!QS.has('nooverrides')) loadOverrides();
 
     // Cached DOM handles. Declared before anything that could reference them.
     const els = {
@@ -1029,6 +1187,57 @@
     const trust = addBoundary(CONFIG.trust, true);
     if (trust) { trust.addTo(map); overlays['Off-reservation trust land'] = trust; }
 
+    /* ---------------- County lines ----------------
+       Which county you are in decides which assessor record applies, so this stays
+       visible in DRIVE mode too — three polygons cost nothing. Styled muted steel so
+       it never reads as the reservation boundary or trust land. */
+    let counties = null;
+    function addCounties() {
+        const cfg = CONFIG.counties;
+        if (!cfg.url) return null;
+        if (counties) { map.removeLayer(counties); delete overlays['County lines']; counties = null; }
+
+        let usedFallback = false;
+        const lyr = L.esri.featureLayer({
+            url: cfg.url,
+            where: cfg.where,
+            style: () => ({ color: cfg.color, weight: 1.5, fill: false, opacity: 0.9 })
+        });
+
+        if (cfg.labels) {
+            lyr.on('createfeature', e => {
+                const f = e.feature;
+                const name = (f && f.properties &&
+                    (f.properties.BASENAME || f.properties.NAME || f.properties.basename || f.properties.name));
+                if (!name) return;
+                const layer = lyr.getFeature(f.id);
+                if (layer && layer.bindTooltip) {
+                    layer.bindTooltip(String(name).toUpperCase() + ' CO',
+                        { permanent: true, direction: 'center', className: 'county-label', opacity: 1 });
+                }
+            });
+        }
+
+        /* TIGERweb sublayer schemas drift between vintages. If GEOID isn't there the
+           query 400s, so retry once with the split STATE/COUNTY fields before
+           declaring the layer dead — the same try-then-fallback shape queryNear uses. */
+        lyr.on('requesterror', e => {
+            if (!usedFallback && cfg.whereFallback) {
+                usedFallback = true;
+                console.warn('County layer: GEOID query failed, retrying with STATE/COUNTY fields');
+                lyr.setWhere(cfg.whereFallback);
+            } else {
+                console.warn('County layer error:', cfg.url, e && e.message);
+            }
+        });
+
+        overlays['County lines'] = lyr;
+        if (cfg.on) lyr.addTo(map);
+        counties = lyr;
+        return lyr;
+    }
+    addCounties();
+
     /* ---------------- Parcel popup builder (schema-tolerant) ----------------
        We can't hard-code field names across two states' schemas, so we match
        attributes by keyword and surface the useful ones; the rest are collapsible.
@@ -1090,6 +1299,62 @@
         return html;
     }
 
+    /* ---------------- NENA / NG911 component addresses ----------------
+       State NG911 datasets (Kansas DASC included) follow the NENA data model,
+       which stores an address as SEPARATE FIELDS — ADDNUM, PRD, STREETNAME, STS
+       — and usually has no single combined field at all. Run those records
+       through the situs keyword matcher and every address comes back blank,
+       which is why they are assembled explicitly here.
+
+       Matching is EXACT (case-insensitively), not substring: a keyword match on
+       'rd' would hit RECORD and WARD, and 'address' would hit almost anything. */
+    const NENA_FIELDS = {
+        full:    ['fulladdr', 'full_address', 'addrlabel', 'label', 'address', 'fulladdress'],
+        num:     ['addnum', 'address_number', 'addressnum', 'add_number', 'addr_num', 'hno', 'housenum', 'house_number'],
+        numsuf:  ['addnumsuf', 'addnum_suf', 'address_number_suffix', 'hnosuf'],
+        predir:  ['prd', 'predir', 'pre_dir', 'st_predir', 'streetpred', 'prefixdir'],
+        pretype: ['pretype', 'st_pretyp', 'pretypesep'],
+        name:    ['streetname', 'street_name', 'stname', 'st_name', 'roadname', 'road_name', 'rd', 'road'],
+        type:    ['sts', 'streettype', 'street_type', 'sttype', 'st_type', 'suftype', 'postype', 'suffix'],
+        posdir:  ['pod', 'sufdir', 'suf_dir', 'postdir', 'st_posdir', 'streetposd']
+    };
+
+    // Exact, case-insensitive field lookup. Returns a trimmed string or null.
+    function getField(props, names) {
+        if (!props) return null;
+        const lower = {};
+        for (const k of Object.keys(props)) lower[k.toLowerCase()] = props[k];
+        for (const n of names) {
+            const v = lower[n];
+            if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim();
+        }
+        return null;
+    }
+
+    function addrFromNena(p) {
+        if (!p) return null;
+        const full = getField(p, NENA_FIELDS.full);
+        if (full) return full;
+
+        const name = getField(p, NENA_FIELDS.name);
+        if (!name) return null;              // a street name is the minimum viable address
+
+        const num = getField(p, NENA_FIELDS.num);
+        const numsuf = getField(p, NENA_FIELDS.numsuf);
+        // NG911 uses 0 for unaddressed structures; "0 Main St" is noise, not an address.
+        const house = (num && num !== '0') ? (num + (numsuf ? numsuf : '')) : null;
+
+        const parts = [
+            house,
+            getField(p, NENA_FIELDS.predir),
+            getField(p, NENA_FIELDS.pretype),
+            name,
+            getField(p, NENA_FIELDS.type),
+            getField(p, NENA_FIELDS.posdir)
+        ].filter(Boolean);
+        return parts.length ? parts.join(' ') : null;
+    }
+
     /* Address / owner from an arbitrary properties bag. Extracted from the
        address-point loader so the NG911 map layer and the drive engine always
        agree on what "the address" is for a given record. */
@@ -1098,6 +1363,8 @@
         const direct = p.address || p.full_address || p.label ||
             [p.number, p.street].filter(Boolean).join(' ');
         if (direct && String(direct).trim()) return String(direct).trim();
+        const nena = addrFromNena(p);         // component-style NG911 records
+        if (nena) return nena;
         const hit = pick(p, SITUS_KEYS);
         return hit ? String(hit.value).trim() : null;
     }
@@ -1210,6 +1477,20 @@
     });
     map.addControl(new LocateControl());
 
+    const SetupControl = L.Control.extend({
+        options: { position: 'bottomright' },
+        onAdd: function () {
+            const bar = L.DomUtil.create('div', 'leaflet-bar setup-bar');
+            const btn = L.DomUtil.create('a', 'mdt-btn', bar);
+            btn.href = '#';
+            btn.title = 'Setup & service check';
+            btn.innerHTML = '&#9881;';   // gear
+            L.DomEvent.on(btn, 'click', L.DomEvent.stop).on(btn, 'click', () => openSetup());
+            return bar;
+        }
+    });
+    map.addControl(new SetupControl());
+
     /* ---------------- Legend ---------------- */
     const Legend = L.Control.extend({
         options: { position: 'topleft' },
@@ -1220,7 +1501,8 @@
                 `<div><span class="line" style="border-color:${CONFIG.trust.color};border-top-style:dashed"></span>Trust land</div>` +
                 `<div><span class="swatch" style="background:${CONFIG.parcels.ne.color}"></span>NE parcels (owner on tap)</div>` +
                 `<div><span class="swatch" style="background:${CONFIG.parcels.ks.color}"></span>KS parcels (configure)</div>` +
-                `<div><span class="swatch" style="background:${CONFIG.addressPoints.color}"></span>Address points</div>`;
+                `<div><span class="swatch" style="background:${CONFIG.addressPoints.color}"></span>Address points</div>` +
+                `<div><span class="line" style="border-color:${CONFIG.counties.color}"></span>County lines</div>`;
             return d;
         }
     });
@@ -1745,12 +2027,66 @@
         };
     }
 
+    /* Live NG911 address-point service (points, not polygons; no owner field).
+       Same query path as parcels, but these are the primary — often only — source of
+       house-level addresses on the Kansas side of the reservation. */
+    function makeAddressServiceSource(stateKey) {
+        const key = 'addr-' + stateKey;
+        return async function (center, radius) {
+            const cfg = CONFIG.addressServices[stateKey];
+            if (!cfg.url) { setSourceState(key, 'off', 0, 'URL not set — open SETUP to add one'); return []; }
+
+            let res = await queryNear(cfg.url, center, radius);
+
+            let truncated = false;
+            if (res.exceeded) {
+                truncated = true;
+                try { res = await queryNear(cfg.url, center, radius * 0.6); }
+                catch (e) { /* keep the truncated result rather than losing everything */ }
+            }
+
+            const feats = (res.fc && res.fc.features) || [];
+            const out = [];
+            let noAddr = 0;
+            for (const f of feats) {
+                const props = f.properties || {};
+                const address = addrFromProps(props);   // -> addrFromNena for component records
+                if (!address) { noAddr++; continue; }
+                const pt = centroidOf(f.geometry);
+                if (!pt) continue;
+                const oid = props.OBJECTID != null ? props.OBJECTID
+                          : (props.objectid != null ? props.objectid
+                          : (props.FID != null ? props.FID : f.id));
+                out.push({
+                    id: key + ':' + (oid != null ? oid : (pt.lat.toFixed(6) + ',' + pt.lng.toFixed(6))),
+                    lat: pt.lat, lng: pt.lng,
+                    address,
+                    owner: null,               // NG911 address points carry no ownership
+                    source: key,
+                    props
+                });
+            }
+            /* If a service returns rows but none of them yield an address, the field
+               names are wrong — not the road. Say so, because an empty feed and an
+               unparsed schema look identical from the driver's seat. */
+            const detail = noAddr && !out.length
+                ? `${feats.length} records but no address fields recognised — check SETUP`
+                : `${feats.length} records / ${out.length} with an address`;
+            if (truncated) setSourceState(key, 'partial', out.length, 'result truncated — ' + detail);
+            else setSourceState(key, out.length ? 'ok' : 'empty', out.length, detail);
+            return out;
+        };
+    }
+
     const SOURCES = [
-        { key: 'ng911',     label: 'NG911',     enabled: () => CONFIG.sources.ng911,    fetch: fetchNG911 },
-        { key: 'parcel-ne', label: 'NE PARCEL', enabled: () => CONFIG.sources.parcelNe, fetch: makeParcelSource('ne') },
-        { key: 'parcel-ks', label: 'KS PARCEL', enabled: () => CONFIG.sources.parcelKs, fetch: makeParcelSource('ks') }
-        // An OSM/Overpass source or an on-demand reverse geocoder drops in here with
-        // the same (center, radius) -> Candidate[] contract; the engine needs no changes.
+        { key: 'ng911',     label: 'FILE',    enabled: () => CONFIG.sources.ng911,    fetch: fetchNG911 },
+        { key: 'addr-ks',   label: 'KS 911',  enabled: () => CONFIG.sources.addrKs,   fetch: makeAddressServiceSource('ks') },
+        { key: 'addr-ne',   label: 'NE 911',  enabled: () => CONFIG.sources.addrNe,   fetch: makeAddressServiceSource('ne') },
+        { key: 'parcel-ne', label: 'NE PCL',  enabled: () => CONFIG.sources.parcelNe, fetch: makeParcelSource('ne') },
+        { key: 'parcel-ks', label: 'KS PCL',  enabled: () => CONFIG.sources.parcelKs, fetch: makeParcelSource('ks') }
+        // Anything else drops in here with the same (center, radius) -> Candidate[]
+        // contract; the engine needs no changes. Order is priority: on a tie, the
+        // earlier source wins, so authoritative address points beat parcel centroids.
     ];
 
     SOURCES.forEach(s => {
@@ -1758,6 +2094,7 @@
                                inFlight: false, lastAt: 0, anchor: null };
     });
     if (!CONFIG.parcels.ks.url) { sourceState['parcel-ks'].status = 'off'; sourceState['parcel-ks'].msg = 'URL not set in CONFIG.parcels'; }
+    if (!CONFIG.addressServices.ne.url) { sourceState['addr-ne'].status = 'off'; sourceState['addr-ne'].msg = 'URL not set — open SETUP to add one'; }
 
     /* =======================================================================
        DRIVE MODE
@@ -2070,21 +2407,28 @@
 
     function timeStr(t) { return new Date(t).toTimeString().slice(0, 8); }
 
+    const SOURCE_PILL = {
+        'ng911': 'FILE', 'addr-ks': 'KS 911', 'addr-ne': 'NE 911',
+        'parcel-ne': 'NE PCL', 'parcel-ks': 'KS PCL'
+    };
+    // Parcels carry an owner; address points don't. That split drives the feed filter.
+    function isParcelSource(src) { return String(src).indexOf('parcel') === 0; }
+
     function rowHtml(e) {
         const bits = [];
         if (e.owner) bits.push(`<span class="feed-owner">${esc(e.owner)}</span>`);
         bits.push(`${e.dist}m`);
         if (e.side) bits.push(e.side);
         bits.push(timeStr(e.t));
-        const pill = e.source === 'ng911' ? 'NG911' : (e.source === 'parcel-ne' ? 'NE' : 'KS');
+        const pill = SOURCE_PILL[e.source] || String(e.source).toUpperCase();
         return `<div class="feed-main"><div class="feed-addr">${esc(e.address)}</div>` +
                `<div class="feed-sub">${bits.join(' &middot; ')}</div></div>` +
-               `<span class="feed-pill">${pill}</span>`;
+               `<span class="feed-pill">${esc(pill)}</span>`;
     }
     function matchesFilter(e) {
         if (feedFilter === 'all') return true;
-        if (feedFilter === 'ng911') return e.source === 'ng911';
-        return e.source.indexOf('parcel') === 0;
+        if (feedFilter === 'address') return !isParcelSource(e.source);
+        return isParcelSource(e.source);
     }
     function makeRow(e) {
         const div = document.createElement('div');
@@ -2127,8 +2471,8 @@
         if (!anyEnabled) {
             msg = 'All address sources are turned off in <b>CONFIG.sources</b>.';
         } else if (!anyConfigured) {
-            msg = 'No address source is configured.<br>Add <b>data/address_points.geojson</b> (your NG911 points) ' +
-                  'or set a parcel service URL in <b>CONFIG.parcels</b>.';
+            msg = 'No address source is configured.<br>Open <b>SETUP</b> and press TEST on each service, ' +
+                  'or drop your NG911 points in <b>data/address_points.geojson</b>.';
         } else if (!curFix) {
             msg = 'Waiting for a GPS fix.<br>Grant location permission, or open with <b>?sim=1</b> to test without driving.';
         } else if (!prefetchAnchor) {
@@ -2144,15 +2488,28 @@
         breakFollow();
         map.setView([e.lat, e.lng], Math.max(map.getZoom(), 18));
         let html;
-        if (e.props && e.source.indexOf('parcel') === 0) {
+        if (e.props && isParcelSource(e.source)) {
             html = buildParcelPopup(e.props, e.source === 'parcel-ne' ? 'NE (Richardson Co.)' : 'KS (Brown/Doniphan Co.)');
         } else {
+            const p = e.props || {};
             html = '<div class="parcel-popup"><h4>ADDRESS POINT</h4><table>' +
                 row('Address', { value: e.address }) +
                 (e.owner ? row('Owner', { value: e.owner }) : '') +
+                (getField(p, ['msagco', 'postco', 'city', 'community', 'incmuni']) ? row('Community', { value: getField(p, ['msagco', 'postco', 'city', 'community', 'incmuni']) }) : '') +
+                (getField(p, ['zip', 'postcode', 'zipcode', 'post_code']) ? row('ZIP', { value: getField(p, ['zip', 'postcode', 'zipcode', 'post_code']) }) : '') +
+                (getField(p, ['county', 'countyname', 'county_name']) ? row('County', { value: getField(p, ['county', 'countyname', 'county_name']) }) : '') +
                 row('Passed', { value: new Date(e.t).toLocaleString() }) +
                 row('Offset', { value: e.dist + ' m' + (e.side ? ' ' + e.side : '') }) +
-                '</table></div>';
+                '</table>';
+            // Full record, collapsed — the same escape hatch parcel popups give you when
+            // the surfaced fields aren't the ones you need.
+            const rest = Object.keys(p).filter(k => p[k] !== null && String(p[k]).trim() !== '');
+            if (rest.length) {
+                html += '<details><summary>All attributes</summary><table>';
+                rest.forEach(k => { html += `<tr><td class="k">${esc(k)}</td><td class="v">${esc(fmt(p[k]))}</td></tr>`; });
+                html += '</table></details>';
+            }
+            html += '</div>';
         }
         L.popup({ maxWidth: 320 }).setLatLng([e.lat, e.lng]).setContent(html).openOn(map);
     }
@@ -2186,7 +2543,7 @@
     /* ---------------- Filters ---------------- */
     const filterBtns = {
         all: document.getElementById('btn-filter-all'),
-        ng911: document.getElementById('btn-filter-ng911'),
+        address: document.getElementById('btn-filter-address'),
         parcel: document.getElementById('btn-filter-parcel')
     };
     Object.keys(filterBtns).forEach(k => filterBtns[k].addEventListener('click', () => {
@@ -2512,6 +2869,250 @@
     });
 
     /* =======================================================================
+       SETUP / SERVICE CHECK
+
+       Every GIS endpoint in this file was unreachable from the machine that wrote
+       it — the whole point of this screen. Rather than shipping guessed URLs and
+       hoping, each service can be tested from the device that will actually use it,
+       and corrected on the spot. Overrides live in localStorage and are merged over
+       CONFIG at boot, so fixing a wrong endpoint in the field costs no redeploy.
+       ======================================================================= */
+
+    /* Test one service: a small live query near the current map centre. Reports the
+       feature count and a real sample address, or the exact error — never a bare
+       "failed", because the whole value here is knowing WHICH thing is wrong. */
+    async function testService(id, kind, url) {
+        if (!url) return { cls: 'idle', text: 'Not set. Paste a URL and press TEST.' };
+        const c = (lastFix || map.getCenter());
+        const center = { lat: c.lat, lng: c.lng };
+
+        if (kind === 'file') {
+            try {
+                const r = await fetch(url, { cache: 'no-store' });
+                if (!r.ok) return { cls: 'warn', text: `HTTP ${r.status} — no file at this path (optional).` };
+                const g = await r.json();
+                const n = (g.features || []).length;
+                const withAddr = (g.features || []).filter(f => addrFromProps(f.properties)).length;
+                return n
+                    ? { cls: withAddr ? 'ok' : 'warn', text: `OK — ${n} features, ${withAddr} with a readable address.` }
+                    : { cls: 'warn', text: 'Loaded, but the file contains no features.' };
+            } catch (e) {
+                return { cls: 'warn', text: 'No local address file (this is optional): ' + (e.message || e) };
+            }
+        }
+
+        try {
+            const res = await withTimeout(queryNear(url, center, 2000), 20000, id);
+            const feats = (res.fc && res.fc.features) || [];
+            if (!feats.length) {
+                return { cls: 'warn', text: `Service answered, but 0 features within 2 km of here.\nThat can mean the wrong layer index, or simply nothing nearby — try again in town.` };
+            }
+            const sample = feats.map(f => addrFromProps(f.properties)).filter(Boolean)[0];
+            const fields = Object.keys(feats[0].properties || {}).slice(0, 12).join(', ');
+            if (!sample) {
+                return { cls: 'warn', text: `Answered with ${feats.length} features, but no address field was recognised.\nFields seen: ${fields}` };
+            }
+            return { cls: 'ok', text: `OK — ${feats.length} features within 2 km.\nSample address: "${sample}"` };
+        } catch (e) {
+            const msg = String((e && (e.message || e)) || 'failed');
+            const hint = /NetworkError|Failed to fetch|CORS/i.test(msg)
+                ? '\nThis looks like a network or CORS refusal — the service may not allow browser requests.'
+                : (/timed out/i.test(msg) ? '\nThe service accepted the connection but never answered.' : '');
+            return { cls: 'bad', text: 'FAILED — ' + msg + hint };
+        }
+    }
+
+    function renderSetup() {
+        const list = document.getElementById('setup-list');
+        list.innerHTML = SERVICE_SLOTS.map(([id, label, get]) => `
+            <div class="setup-row" data-id="${id}">
+                <div class="setup-head">
+                    <span class="setup-name">${esc(label)}</span>
+                    <button type="button" class="feed-btn setup-test" data-id="${id}">TEST</button>
+                </div>
+                <input type="text" class="setup-url" data-id="${id}" value="${esc(get() || '')}" placeholder="(not set)" spellcheck="false" autocapitalize="off" autocorrect="off">
+                <div class="setup-result idle" data-id="${id}">Not tested yet.</div>
+            </div>`).join('');
+
+        list.querySelectorAll('.setup-url').forEach(inp => {
+            inp.addEventListener('change', () => {
+                const slot = SERVICE_SLOTS.find(s => s[0] === inp.dataset.id);
+                slot[3](inp.value.trim());
+                saveOverrides();
+                applyServiceChange(inp.dataset.id);
+            });
+        });
+        list.querySelectorAll('.setup-test').forEach(btn => {
+            btn.addEventListener('click', () => runOneTest(btn.dataset.id));
+        });
+        renderOfflineSetup();
+    }
+
+    async function runOneTest(id) {
+        const slot = SERVICE_SLOTS.find(s => s[0] === id);
+        const cell = document.querySelector(`.setup-result[data-id="${id}"]`);
+        cell.className = 'setup-result idle';
+        cell.textContent = 'Testing…';
+        const r = await testService(id, slot[4], slot[2]());
+        cell.className = 'setup-result ' + r.cls;
+        cell.textContent = r.text;
+    }
+
+    // Re-apply a URL change without a reload where that is cheap and unambiguous.
+    function applyServiceChange(id) {
+        if (id === 'counties') addCounties();
+        if (id.indexOf('addr-') === 0 || id.indexOf('parcel-') === 0) {
+            const st = sourceState[id];
+            if (st) { st.anchor = null; st.lastAt = 0; st.fails = 0; st.suspendUntil = 0; st.status = 'idle'; }
+            renderSourceBadges();
+        }
+    }
+
+    /* =======================================================================
+       OFFLINE MAP CACHE
+       The service worker keeps tiles you have already looked at. SAVE THIS AREA
+       pre-loads the current view so a route can be pulled down on wifi before
+       heading into a dead zone, rather than only keeping what you happened to
+       drive past.
+       ======================================================================= */
+    let swReg = null, cacheStatus = { tiles: 0, max: 0 }, cachingBusy = false;
+
+    function registerSW() {
+        if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
+        navigator.serviceWorker.register('sw.js').then(reg => {
+            swReg = reg;
+            askCacheStatus();
+        }).catch(e => console.info('Service worker not registered:', e && e.message));
+
+        navigator.serviceWorker.addEventListener('message', ev => {
+            const m = ev.data || {};
+            if (m.type === 'CACHE_STATUS') {
+                cacheStatus = { tiles: m.tiles, max: m.max };
+                renderOfflineSetup();
+            } else if (m.type === 'CACHE_PROGRESS') {
+                const el = document.getElementById('offline-result');
+                if (el) { el.className = 'setup-result warn'; el.textContent = `Saving… ${m.done} / ${m.total} tiles`; }
+            } else if (m.type === 'CACHE_DONE') {
+                cachingBusy = false;
+                const el = document.getElementById('offline-result');
+                if (el) {
+                    el.className = m.failed ? 'setup-result warn' : 'setup-result ok';
+                    el.textContent = `Saved ${m.done} of ${m.total} tiles` + (m.failed ? ` — ${m.failed} could not be fetched.` : '.');
+                }
+                askCacheStatus();
+                toast(`Offline map: ${m.done} tiles saved.`);
+            }
+        });
+    }
+    function swPost(msg) {
+        const target = (navigator.serviceWorker && navigator.serviceWorker.controller) ||
+                       (swReg && (swReg.active || swReg.waiting));
+        if (target) target.postMessage(msg);
+        return !!target;
+    }
+    function askCacheStatus() { swPost({ type: 'CACHE_STATUS' }); }
+
+    // Web-Mercator tile maths — the same transform Leaflet uses internally.
+    function tileRange(bounds, z) {
+        const n = Math.pow(2, z);
+        const lon2x = lon => Math.floor((lon + 180) / 360 * n);
+        const lat2y = lat => {
+            const r = lat * DEG;
+            return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n);
+        };
+        return {
+            x0: Math.max(0, lon2x(bounds.getWest())),  x1: Math.min(n - 1, lon2x(bounds.getEast())),
+            y0: Math.max(0, lat2y(bounds.getNorth())), y1: Math.min(n - 1, lat2y(bounds.getSouth()))
+        };
+    }
+    function tileUrlsForView(zMin, zMax) {
+        const b = map.getBounds();
+        const urls = [];
+        const subs = 'abcd';
+        for (let z = zMin; z <= zMax; z++) {
+            const r = tileRange(b, z);
+            for (let x = r.x0; x <= r.x1; x++) {
+                for (let y = r.y0; y <= r.y1; y++) {
+                    urls.push(`https://${subs[(x + y) % 4]}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`);
+                }
+            }
+        }
+        return urls;
+    }
+
+    const OFFLINE_ZOOM_MIN = 12, OFFLINE_ZOOM_MAX = 16, OFFLINE_TILE_CAP = 1500;
+
+    function renderOfflineSetup() {
+        const el = document.getElementById('setup-offline');
+        if (!el) return;
+        const supported = ('serviceWorker' in navigator) && window.isSecureContext;
+        if (!supported) {
+            el.innerHTML = `<div class="setup-result warn">Offline caching needs HTTPS. ` +
+                `It will work on the published site, not on a plain <code>file://</code> copy.</div>`;
+            return;
+        }
+        let estimate = 0;
+        try { estimate = tileUrlsForView(OFFLINE_ZOOM_MIN, OFFLINE_ZOOM_MAX).length; } catch (e) {}
+        const over = estimate > OFFLINE_TILE_CAP;
+        el.innerHTML = `
+            <div class="setup-result idle">Stored now: <b>${cacheStatus.tiles || 0}</b> tiles` +
+            `${cacheStatus.max ? ' (cap ' + cacheStatus.max + ')' : ''}. ` +
+            `The app itself already opens without signal.</div>
+            <div class="setup-result ${over ? 'warn' : 'idle'}" style="margin-top:6px">
+                Current view, zoom ${OFFLINE_ZOOM_MIN}–${OFFLINE_ZOOM_MAX}: <b>${estimate}</b> tiles${
+                over ? ` — over the ${OFFLINE_TILE_CAP} limit. Zoom in before saving.` : '.'}
+            </div>
+            <div class="sim-btns">
+                <button type="button" class="feed-btn" id="offline-save" ${over ? 'disabled' : ''}>SAVE THIS AREA</button>
+                <button type="button" class="feed-btn danger" id="offline-clear">CLEAR TILES</button>
+            </div>
+            <div class="setup-result idle" id="offline-result">Pan and zoom to the area you will be driving, then save.</div>`;
+
+        const save = document.getElementById('offline-save');
+        if (save) save.addEventListener('click', () => {
+            if (cachingBusy) return;
+            const urls = tileUrlsForView(OFFLINE_ZOOM_MIN, OFFLINE_ZOOM_MAX);
+            if (urls.length > OFFLINE_TILE_CAP) return;
+            if (!swPost({ type: 'CACHE_TILES', urls })) {
+                document.getElementById('offline-result').textContent =
+                    'Service worker not active yet — reload once, then try again.';
+                return;
+            }
+            cachingBusy = true;
+            const r = document.getElementById('offline-result');
+            r.className = 'setup-result warn';
+            r.textContent = `Saving… 0 / ${urls.length} tiles`;
+        });
+        const clear = document.getElementById('offline-clear');
+        if (clear) clear.addEventListener('click', () => {
+            if (!confirm('Delete all saved map tiles from this device?')) return;
+            swPost({ type: 'CLEAR_TILES' });
+        });
+    }
+
+    function openSetup() { renderSetup(); askCacheStatus(); document.getElementById('setup-modal').classList.add('on'); }
+    function closeSetup() { document.getElementById('setup-modal').classList.remove('on'); }
+
+    document.getElementById('setup-close').addEventListener('click', closeSetup);
+    document.getElementById('setup-testall').addEventListener('click', async () => {
+        for (const [id] of SERVICE_SLOTS) await runOneTest(id);
+    });
+    document.getElementById('setup-copy').addEventListener('click', () => {
+        const out = {};
+        for (const [id, , get] of SERVICE_SLOTS) out[id] = get();
+        const text = JSON.stringify(out, null, 2);
+        if (navigator.clipboard) navigator.clipboard.writeText(text).then(
+            () => toast('Config copied — paste it back to me and I will make it the default.'),
+            () => toast(text));
+        else toast(text, 12000);
+    });
+    document.getElementById('setup-reset').addEventListener('click', () => {
+        if (!confirm('Reset every service URL back to the built-in defaults?')) return;
+        try { localStorage.removeItem(OVERRIDE_KEY); } catch (e) {}
+        location.reload();
+    });
+
+    /* =======================================================================
        SELFTEST  (?selftest=1)
        These are precisely the bugs that stay invisible until you are on the road.
        ======================================================================= */
@@ -2593,6 +3194,53 @@
         ok('a genuinely different house is still added', addrCache.size === before + 1, String(addrCache.size));
         addrCache.clear();
 
+        /* --- NENA / NG911 component addresses ---
+           State NG911 services store an address as separate fields. If this assembler
+           is wrong the Kansas side of the reservation silently logs nothing at all,
+           which is why it is asserted here rather than trusted. */
+        ok('NENA: assembles number + street + type',
+            addrFromNena({ ADDNUM: '1302', STREETNAME: 'Chay', STS: 'Dr' }) === '1302 Chay Dr',
+            String(addrFromNena({ ADDNUM: '1302', STREETNAME: 'Chay', STS: 'Dr' })));
+        ok('NENA: includes pre- and post-directionals',
+            addrFromNena({ ADDNUM: '405', PRD: 'N', STREETNAME: 'Main', STS: 'St', POD: 'SW' }) === '405 N Main St SW',
+            String(addrFromNena({ ADDNUM: '405', PRD: 'N', STREETNAME: 'Main', STS: 'St', POD: 'SW' })));
+        ok('NENA: field names are case-insensitive',
+            addrFromNena({ addnum: '77', streetname: 'Iowa', sts: 'Ave' }) === '77 Iowa Ave');
+        ok('NENA: honours a combined field when present',
+            addrFromNena({ FULLADDR: '9 Elm Ct', ADDNUM: '9', STREETNAME: 'Elm' }) === '9 Elm Ct');
+        ok('NENA: address number suffix is kept',
+            addrFromNena({ ADDNUM: '12', ADDNUMSUF: 'B', STREETNAME: 'Oak', STS: 'Rd' }) === '12B Oak Rd');
+        ok('NENA: drops placeholder house number 0',
+            addrFromNena({ ADDNUM: '0', STREETNAME: 'County', STS: 'Rd' }) === 'County Rd',
+            String(addrFromNena({ ADDNUM: '0', STREETNAME: 'County', STS: 'Rd' })));
+        ok('NENA: no street name yields null, not a bare number',
+            addrFromNena({ ADDNUM: '1302', CITY: 'White Cloud' }) === null);
+        // Exact matching matters: a substring matcher would read RECORD_ID as the road.
+        ok('NENA: does not mistake RECORD_ID for a road name',
+            addrFromNena({ RECORD_ID: 'X99', ADDNUM: '5' }) === null,
+            String(addrFromNena({ RECORD_ID: 'X99', ADDNUM: '5' })));
+        ok('NENA record flows through addrFromProps',
+            addrFromProps({ ADDNUM: '1302', PRD: 'N', STREETNAME: 'Chay', STS: 'Dr' }) === '1302 N Chay Dr',
+            String(addrFromProps({ ADDNUM: '1302', PRD: 'N', STREETNAME: 'Chay', STS: 'Dr' })));
+        ok('plain address field still wins over components',
+            addrFromProps({ address: '1 Direct St', ADDNUM: '2', STREETNAME: 'Other' }) === '1 Direct St');
+        ok('parcel situs fallback still works',
+            addrFromProps({ SITUS_ADDR: '88 Situs Ln' }) === '88 Situs Ln',
+            String(addrFromProps({ SITUS_ADDR: '88 Situs Ln' })));
+        ok('getField is exact, not substring',
+            getField({ MYADDNUM: '9' }, ['addnum']) === null && getField({ ADDNUM: '9' }, ['addnum']) === '9');
+
+        /* --- tile maths for the offline area save --- */
+        ok('tileRange at z0 is a single tile', (() => {
+            const r = tileRange(L.latLngBounds([[-10, -10], [10, 10]]), 0);
+            return r.x0 === 0 && r.x1 === 0 && r.y0 === 0 && r.y1 === 0;
+        })());
+        ok('tileRange grows with zoom', (() => {
+            const b = L.latLngBounds([[39.9, -95.4], [40.1, -95.2]]);
+            const a = tileRange(b, 12), c2 = tileRange(b, 14);
+            return (c2.x1 - c2.x0) >= (a.x1 - a.x0);
+        })());
+
         /* --- export escaping --- */
         const csv = toCSV([{ address:'1 A St, Apt "B"', owner:'DOE, JOHN', lat:1, lng:2,
                              source:'ng911', dist:5, side:'LEFT', heading:90, t:0 }]);
@@ -2622,6 +3270,9 @@
     /* =======================================================================
        BOOT
        ======================================================================= */
+    document.getElementById('btn-setup').addEventListener('click', openSetup);
+    registerSW();
+
     loadPrefs();
     loadPassLog();
     renderFeed();

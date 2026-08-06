@@ -5,8 +5,24 @@ NG911 / dispatch reference, and field work). It plots the reservation on a dark,
 touch-friendly base and pulls **per-parcel owner records live from public county /
 state assessor services** when you zoom in.
 
-Open `index.html` in any modern browser, or serve the folder (`python3 -m http.server`)
-so the optional address-points file can load.
+**Live at https://jward116.github.io/iowa-field-map/** — open that on the phone you take
+in the truck. It has to be the https link, not a local file: browsers only give a page
+your GPS location over https.
+
+For local work, serve the folder (`python3 -m http.server`) rather than opening the file
+directly, so the address-points file and the offline service worker can load.
+
+## First run, on the phone you'll actually use
+
+1. Open the link above and allow location when asked.
+2. Tap the **⚙ gear** (bottom right) → **TEST ALL**. Every service reports back within a
+   few seconds: green with a real sample address means it works from your device, grey
+   means it isn't configured, red shows the exact error.
+3. Anything red or wrong — paste a corrected URL right there. It saves on that phone; no
+   redeploy. **COPY CONFIG** hands back the working set so it can become the default.
+4. While still on wifi, pan to the area you'll be driving and press **SAVE THIS AREA** so
+   the map still draws in dead zones.
+5. Tap **DRIVE**.
 
 ## What's on the map
 
@@ -14,10 +30,21 @@ so the optional address-points file can load.
 |---|---|---|
 | Reservation boundary | Census TIGERweb AIANNH, `AIANNHCE = 2430` | Iowa (KS-NE) Reservation |
 | Off-reservation trust land | Census TIGERweb AIANNH (dashed) | verify parcel-level trust/fee against BIA LTRO |
+| County lines | Census TIGERweb `State_County/11` | Doniphan & Brown (KS), Richardson (NE), labeled |
+| KS address points | Kansas DASC statewide NG911 | house-level addresses on the Kansas side |
+| NE address points | **you configure** | slot ready; add a URL in SETUP |
 | NE parcels + owner | `giscat.ne.gov … TaxParcels2023/0` | tap a parcel for owner, situs, parcel id, acres, assessed value, land use |
 | KS parcels + owner | **you configure** | Kansas statewide ownership is often license-restricted — see below |
 | Address points (NG911) | optional local GeoJSON | tap for the address record |
 | Live GPS | browser geolocation | field position + accuracy ring; ◎ button re-centers |
+
+**Kansas coverage matters here.** White Cloud is in Doniphan County, and the Nebraska
+parcel service stops at the state line while Kansas statewide parcel *ownership* is
+license-restricted. Kansas does publish its NG911 address points, so that service is what
+gives the Kansas side of the reservation any house-level coverage at all. Those records
+store an address as separate NENA fields (`ADDNUM`, `PRD`, `STREETNAME`, `STS`) rather
+than one string, so the map assembles them — `1302` + `N` + `Chay` + `Dr` → *1302 N Chay Dr*.
+Address points carry no owner name; parcel rows still show one.
 
 Parcels only render at zoom **15+** (the statewide layers are dense). The header shows
 `PARCELS: ZOOM IN` / `PARCELS: LIVE`, and tapping the map reads out coordinates.
@@ -89,9 +116,25 @@ only show up at 55 mph on a real road.
 
 `?selftest=1` runs the geometry, dedup and CSV-escaping assertions and prints the results.
 
+## Offline
+
+Rural Richardson, Brown and Doniphan have real dead zones, so:
+
+- The **app itself opens with no signal** — a service worker caches the page and its libraries.
+- **Map tiles you have already viewed keep drawing**, capped at ~3000 tiles and evicted oldest-first.
+- **SAVE THIS AREA** (in SETUP) pre-loads the current view across zooms 12–16 before you leave
+  wifi, with a tile count shown up front and a hard cap so it can't run away with your storage.
+- Addresses keep logging from the cached corridor regardless — that was already true.
+
+GIS service responses are deliberately **never** cached: stale ownership is worse than none.
+
 ## Configuration
 
-Everything adjustable is in the `CONFIG` block at the top of `index.html`:
+Almost nothing needs editing by hand — the **⚙ SETUP** screen edits every service URL on the
+device and saves it there. Use `?nooverrides=1` to ignore saved overrides and load the
+built-in defaults, and RESET DEFAULTS to clear them.
+
+The built-in defaults live in the `CONFIG` block at the top of `index.html`:
 
 - **`parcels.ks.url`** — set this to the Brown/Doniphan County appraiser service or the
   Kansas DASC parcel service you are licensed to use. Left blank by default because
