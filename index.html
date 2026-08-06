@@ -3,47 +3,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Iowa Tribe Intel - Tactical Map</title>
-    
+    <title>Iowa Tribe Field Map — Parcel & Address Terminal</title>
+
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    
+
     <style>
-        body { 
-            margin: 0; 
-            padding: 0; 
+        html, body {
+            margin: 0;
+            padding: 0;
             background-color: #000000; /* Pure black for MDT screens */
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            overflow: hidden; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
         }
-        #map { 
-            height: 100vh; 
-            width: 100vw; 
-            z-index: 1; 
+        #map {
+            height: 100vh;
+            width: 100vw;
+            z-index: 1;
+            background: #000;
         }
-        /* Tactical UI Overlay */
-        #ui-layer { 
-            position: absolute; 
-            top: 0; 
-            width: 100%; 
-            z-index: 1000; 
+
+        /* ---------- Top UI overlay ---------- */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            width: 100%;
+            z-index: 1000;
             pointer-events: none;
         }
         .header-panel {
-            pointer-events: auto; 
-            background: rgba(15, 15, 15, 0.95); 
-            color: #ffffff; 
-            padding: 10px 15px; 
-            border-bottom: 2px solid #333333; 
-            display: flex; 
+            pointer-events: auto;
+            background: rgba(15, 15, 15, 0.95);
+            color: #ffffff;
+            padding: 10px 15px;
+            border-bottom: 2px solid #333333;
+            display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 10px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.5);
         }
         .system-title {
-            color: #00ff00; /* High-vis tactical green */
+            color: #00ff00; /* High-vis green */
             font-weight: 900;
             letter-spacing: 1px;
             font-size: 14px;
+            white-space: nowrap;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         .status-indicator {
             font-size: 12px;
@@ -53,40 +62,452 @@
             background: rgba(255, 0, 0, 0.2);
             color: #ff4444;
             border: 1px solid #ff4444;
+            white-space: nowrap;
         }
+        .status-indicator.locked {
+            background: rgba(0, 255, 0, 0.15);
+            color: #33ff77;
+            border-color: #33ff77;
+        }
+        .status-indicator.searching {
+            background: rgba(255, 200, 0, 0.15);
+            color: #ffcc33;
+            border-color: #ffcc33;
+        }
+
+        /* ---------- Bottom-left coordinate / hint readout ---------- */
+        .readout {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            z-index: 1000;
+            background: rgba(15, 15, 15, 0.9);
+            color: #c8c8c8;
+            border: 1px solid #333;
+            border-radius: 3px;
+            padding: 6px 9px;
+            font-size: 11px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            line-height: 1.5;
+            max-width: 60vw;
+            pointer-events: none;
+        }
+        .readout b { color: #00ff00; }
+        .readout .hint { color: #ffcc33; }
+
+        /* ---------- Legend ---------- */
+        .legend {
+            background: rgba(15, 15, 15, 0.92);
+            color: #ddd;
+            border: 1px solid #333;
+            border-radius: 3px;
+            padding: 8px 10px;
+            font-size: 11px;
+            line-height: 1.7;
+        }
+        .legend .swatch {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 6px;
+            vertical-align: middle;
+            border-radius: 2px;
+        }
+        .legend .line {
+            display: inline-block;
+            width: 14px;
+            height: 0;
+            margin-right: 6px;
+            vertical-align: middle;
+            border-top-width: 3px;
+            border-top-style: solid;
+        }
+
+        /* ---------- Bigger touch-friendly controls for MDT / field use ---------- */
+        .leaflet-control-zoom a,
+        .leaflet-bar a.mdt-btn {
+            width: 44px !important;
+            height: 44px !important;
+            line-height: 44px !important;
+            font-size: 22px !important;
+            background: #1a1a1a;
+            color: #00ff00;
+            border-bottom: 1px solid #333;
+        }
+        .leaflet-control-zoom a:hover,
+        .leaflet-bar a.mdt-btn:hover {
+            background: #262626;
+            color: #66ff99;
+        }
+        .leaflet-bar {
+            border: 1px solid #333;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+        }
+
+        /* ---------- Popups (tactical dark) ---------- */
+        .leaflet-popup-content-wrapper {
+            background: #141414;
+            color: #e6e6e6;
+            border: 1px solid #00ff00;
+            border-radius: 4px;
+        }
+        .leaflet-popup-tip { background: #00ff00; }
+        .leaflet-popup-content { margin: 10px 12px; font-size: 12px; }
+        .parcel-popup h4 {
+            margin: 0 0 6px 0;
+            color: #00ff00;
+            font-size: 13px;
+            letter-spacing: 0.5px;
+        }
+        .parcel-popup table { border-collapse: collapse; width: 100%; }
+        .parcel-popup td {
+            padding: 2px 6px 2px 0;
+            vertical-align: top;
+            border-bottom: 1px solid #262626;
+        }
+        .parcel-popup td.k { color: #8fbf8f; white-space: nowrap; font-weight: 600; }
+        .parcel-popup td.v { color: #f0f0f0; word-break: break-word; }
+        .parcel-popup .src {
+            margin-top: 6px;
+            font-size: 10px;
+            color: #888;
+        }
+        .parcel-popup details { margin-top: 6px; }
+        .parcel-popup summary { cursor: pointer; color: #8fbf8f; font-size: 11px; }
+
+        /* Layer control legibility on dark */
+        .leaflet-control-layers {
+            background: rgba(15,15,15,0.95);
+            color: #ddd;
+            border: 1px solid #333;
+        }
+        .leaflet-control-layers-expanded { padding: 8px 10px; }
+        .leaflet-control-layers label { font-size: 12px; }
     </style>
 </head>
 <body>
 
     <div id="ui-layer">
         <div class="header-panel">
-            <div class="system-title">IOWA TRIBE INTEL // SECURE TERMINAL</div>
-            <div id="gps-status" class="status-indicator">GPS: OFFLINE</div>
+            <div class="system-title">IOWA TRIBE FIELD MAP // PARCEL &amp; ADDRESS TERMINAL</div>
+            <div class="header-right">
+                <div id="parcel-status" class="status-indicator searching">PARCELS: ZOOM IN</div>
+                <div id="gps-status" class="status-indicator">GPS: OFFLINE</div>
+            </div>
         </div>
+    </div>
+
+    <div id="readout" class="readout">
+        <span class="hint">Tap the map to read coordinates &middot; tap a parcel for owner record</span>
     </div>
 
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
     <script src="https://unpkg.com/esri-leaflet@3.0.10/dist/esri-leaflet.js"></script>
 
     <script>
-        // Initialize Map focused on White Cloud region
-        const map = L.map('map', {
-            zoomControl: false, // We will build a custom, larger zoom control later for touchscreens
-            attributionControl: false // Cleans up the UI
-        }).setView([39.9772, -95.2974], 12);
+    /* =======================================================================
+       CONFIG — endpoints & parameters. Everything the tribe's GIS staff would
+       normally change lives here. Owner/parcel data is fetched live, in the
+       browser, from public county / state assessor services; nothing personal
+       is stored in this repo.
+       ======================================================================= */
+    const CONFIG = {
+        center: [39.9772, -95.2974],   // White Cloud, KS region
+        zoom: 12,
+        parcelMinZoom: 15,             // parcels only render when zoomed in (dense statewide layers)
 
-        // Load CartoDB Dark Matter Base (Tactical Night Mode)
-        const darkBase = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            maxZoom: 20,
-            subdomains: 'abcd'
-        }).addTo(map);
+        // Reservation boundary — Census TIGERweb AIANNH. AIANNHCE 2430 = Iowa (KS-NE).
+        // MapServer sublayer 2 = federal reservations, 3 = off-reservation trust land.
+        reservation: {
+            url:   'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/AIANNHA/MapServer/2',
+            where: "AIANNHCE = '2430'",
+            color: '#ffcc00'
+        },
+        trust: {
+            url:   'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/AIANNHA/MapServer/3',
+            where: "AIANNHCE = '2430'",
+            color: '#ff9900'
+        },
 
-        // --- Future Data Hooks go here ---
-        // We will wire the Esri parcel layer and the GeoJSON boundary next.
+        // Per-parcel OWNER records (public county assessor data).
+        parcels: {
+            ne: {
+                label: 'NE Parcels — Richardson Co.',
+                url:   'https://giscat.ne.gov/enterprise/rest/services/TaxParcels2023/FeatureServer/0',
+                color: '#00e5ff',
+                on:    true
+            },
+            // Kansas statewide ownership is frequently license-restricted. Drop in the
+            // Brown/Doniphan County appraiser or the DASC service you're licensed for.
+            ks: {
+                label: 'KS Parcels — Brown/Doniphan Co.',
+                url:   '',              // e.g. 'https://gis.dasc.kansasgis.org/arcgis/rest/services/.../FeatureServer/0'
+                color: '#ffb000',
+                on:    true
+            }
+        },
 
+        // Optional NG911 / tribal address points. Drop a GeoJSON (or point the URL at
+        // your ArcGIS feature service). Loader fails silently if the file is absent.
+        addressPoints: {
+            label: 'Address Points (NG911)',
+            url:   'data/address_points.geojson',
+            color: '#00ff00'
+        }
+    };
+
+    /* ======================================================================= */
+
+    const map = L.map('map', {
+        zoomControl: false,
+        attributionControl: false
+    }).setView(CONFIG.center, CONFIG.zoom);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 20,
+        subdomains: 'abcd'
+    }).addTo(map);
+
+    const overlays = {};   // for the layer control
+
+    /* ---------------- Reservation & trust boundaries ---------------- */
+    function addBoundary(cfg, dashed) {
+        if (!cfg.url) return null;
+        const lyr = L.esri.featureLayer({
+            url: cfg.url,
+            where: cfg.where,
+            style: () => ({
+                color: cfg.color,
+                weight: 3,
+                fill: false,
+                dashArray: dashed ? '6,6' : null,
+                opacity: 0.95
+            })
+        });
+        lyr.on('requesterror', e => console.warn('Boundary layer error:', cfg.url, e && e.message));
+        return lyr;
+    }
+
+    const reservation = addBoundary(CONFIG.reservation, false);
+    if (reservation) { reservation.addTo(map); overlays['Reservation boundary'] = reservation; }
+    const trust = addBoundary(CONFIG.trust, true);
+    if (trust) { trust.addTo(map); overlays['Off-reservation trust land'] = trust; }
+
+    /* ---------------- Parcel popup builder (schema-tolerant) ---------------- */
+    // We can't hard-code field names across two states' schemas, so we match
+    // attributes by keyword and surface the useful ones; the rest are collapsible.
+    function pick(props, keywords) {
+        for (const key of Object.keys(props)) {
+            const kl = key.toLowerCase();
+            if (keywords.some(w => kl.includes(w))) {
+                const v = props[key];
+                if (v !== null && v !== undefined && String(v).trim() !== '') {
+                    return { field: key, value: v };
+                }
+            }
+        }
+        return null;
+    }
+    function fmt(v) {
+        if (typeof v === 'number' && v > 999) return v.toLocaleString();
+        return v;
+    }
+    function row(label, hit, isMoney) {
+        if (!hit) return '';
+        let val = fmt(hit.value);
+        if (isMoney && typeof hit.value === 'number') val = '$' + hit.value.toLocaleString();
+        return `<tr><td class="k">${label}</td><td class="v">${val}</td></tr>`;
+    }
+    function buildParcelPopup(props, stateLabel) {
+        const owner  = pick(props, ['owner', 'ownernam', 'taxpayer', 'deedhold']);
+        const situs  = pick(props, ['situs', 'prop_addr', 'propaddr', 'site_addr', 'location', 'address', 'saddr']);
+        const pid    = pick(props, ['parcel', 'pin', 'pid', 'gisid', 'apn']);
+        const acres  = pick(props, ['acre', 'gis_acre', 'deed_acre']);
+        const value  = pick(props, ['total_val', 'totalval', 'assess', 'market', 'apprais', 'value']);
+        const use    = pick(props, ['landuse', 'land_use', 'use_desc', 'class', 'property_c']);
+
+        let html = `<div class="parcel-popup"><h4>PARCEL &mdash; ${stateLabel}</h4><table>`;
+        html += row('Owner', owner);
+        html += row('Situs', situs);
+        html += row('Parcel ID', pid);
+        html += row('Acres', acres);
+        html += row('Assessed', value, true);
+        html += row('Land use', use);
+        html += '</table>';
+
+        // full attribute dump for anything we didn't surface
+        const shown = [owner, situs, pid, acres, value, use].filter(Boolean).map(h => h.field);
+        const rest = Object.keys(props).filter(k => !shown.includes(k) && props[k] !== null && String(props[k]).trim() !== '');
+        if (rest.length) {
+            html += '<details><summary>All attributes</summary><table>';
+            rest.forEach(k => { html += `<tr><td class="k">${k}</td><td class="v">${fmt(props[k])}</td></tr>`; });
+            html += '</table></details>';
+        }
+        html += '<div class="src">Public county assessor record &middot; verify trust/fee status against BIA LTRO</div>';
+        html += '</div>';
+        return html;
+    }
+
+    /* ---------------- Parcel layers ---------------- */
+    function addParcels(cfg, stateLabel) {
+        if (!cfg.url) return null;
+        const lyr = L.esri.featureLayer({
+            url: cfg.url,
+            minZoom: CONFIG.parcelMinZoom,   // don't pull dense statewide data when zoomed out
+            simplifyFactor: 0.5,
+            precision: 6,
+            style: () => ({ color: cfg.color, weight: 1, fillOpacity: 0.06, fillColor: cfg.color })
+        });
+        lyr.bindPopup(l => buildParcelPopup(l.feature.properties, stateLabel));
+        lyr.on('mouseover', e => e.layer.setStyle({ weight: 2.5, fillOpacity: 0.15 }));
+        lyr.on('mouseout',  e => lyr.resetStyle(e.layer));
+        lyr.on('requesterror', e => console.warn('Parcel layer error:', cfg.url, e && e.message));
+        return lyr;
+    }
+
+    const neParcels = addParcels(CONFIG.parcels.ne, 'NE (Richardson Co.)');
+    if (neParcels) {
+        overlays[CONFIG.parcels.ne.label] = neParcels;
+        if (CONFIG.parcels.ne.on) neParcels.addTo(map);
+    }
+    const ksParcels = addParcels(CONFIG.parcels.ks, 'KS (Brown/Doniphan Co.)');
+    if (ksParcels) {
+        overlays[CONFIG.parcels.ks.label] = ksParcels;
+        if (CONFIG.parcels.ks.on) ksParcels.addTo(map);
+    }
+
+    /* ---------------- Address points (optional GeoJSON) ---------------- */
+    fetch(CONFIG.addressPoints.url, { cache: 'no-store' })
+        .then(r => { if (!r.ok) throw new Error('no address file'); return r.json(); })
+        .then(geo => {
+            const pts = L.geoJSON(geo, {
+                pointToLayer: (f, latlng) => L.circleMarker(latlng, {
+                    radius: 4, color: CONFIG.addressPoints.color, weight: 1,
+                    fillColor: CONFIG.addressPoints.color, fillOpacity: 0.9
+                }),
+                onEachFeature: (f, layer) => {
+                    const p = f.properties || {};
+                    const addr = p.address || p.full_address || p.label ||
+                        [p.number, p.street].filter(Boolean).join(' ');
+                    let html = '<div class="parcel-popup"><h4>ADDRESS POINT</h4><table>';
+                    if (addr) html += `<tr><td class="k">Address</td><td class="v">${addr}</td></tr>`;
+                    Object.keys(p).forEach(k => {
+                        if (['address','full_address','label','number','street'].includes(k)) return;
+                        if (p[k] === null || String(p[k]).trim() === '') return;
+                        html += `<tr><td class="k">${k}</td><td class="v">${p[k]}</td></tr>`;
+                    });
+                    html += '</table></div>';
+                    layer.bindPopup(html);
+                }
+            });
+            overlays[CONFIG.addressPoints.label] = pts;
+            pts.addTo(map);
+        })
+        .catch(() => console.info('No address_points.geojson loaded (optional).'));
+
+    /* ---------------- Layer control ---------------- */
+    L.control.layers(null, overlays, { position: 'topright', collapsed: false }).addTo(map);
+
+    /* ---------------- Big touch zoom + Locate controls ---------------- */
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    const LocateControl = L.Control.extend({
+        options: { position: 'bottomright' },
+        onAdd: function () {
+            const bar = L.DomUtil.create('div', 'leaflet-bar');
+            const btn = L.DomUtil.create('a', 'mdt-btn', bar);
+            btn.href = '#';
+            btn.title = 'Center on my GPS location';
+            btn.innerHTML = '&#9678;';   // target glyph
+            L.DomEvent.on(btn, 'click', L.DomEvent.stop).on(btn, 'click', () => {
+                if (lastFix) map.setView(lastFix, Math.max(map.getZoom(), 16));
+                else startGeolocation(true);
+            });
+            return bar;
+        }
+    });
+    map.addControl(new LocateControl());
+
+    /* ---------------- Legend ---------------- */
+    const Legend = L.Control.extend({
+        options: { position: 'topleft' },
+        onAdd: function () {
+            const d = L.DomUtil.create('div', 'legend');
+            d.innerHTML =
+                `<div><span class="line" style="border-color:${CONFIG.reservation.color}"></span>Reservation boundary</div>` +
+                `<div><span class="line" style="border-color:${CONFIG.trust.color};border-top-style:dashed"></span>Trust land</div>` +
+                `<div><span class="swatch" style="background:${CONFIG.parcels.ne.color}"></span>NE parcels (owner on tap)</div>` +
+                `<div><span class="swatch" style="background:${CONFIG.parcels.ks.color}"></span>KS parcels (configure)</div>` +
+                `<div><span class="swatch" style="background:${CONFIG.addressPoints.color}"></span>Address points</div>`;
+            return d;
+        }
+    });
+    map.addControl(new Legend());
+
+    /* ---------------- Coordinate readout (touch-friendly) ---------------- */
+    const readout = document.getElementById('readout');
+    function showCoords(latlng, tag) {
+        readout.innerHTML =
+            `<div>${tag || 'POS'}: <b>${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}</b></div>` +
+            (map.getZoom() < CONFIG.parcelMinZoom
+                ? `<div class="hint">Zoom to ${CONFIG.parcelMinZoom}+ to load parcels</div>` : '');
+    }
+    map.on('click', e => showCoords(e.latlng, 'TAP'));
+    map.on('mousemove', e => { if (map.getZoom() >= CONFIG.parcelMinZoom) showCoords(e.latlng, 'CUR'); });
+
+    /* ---------------- Parcel-status indicator vs. zoom ---------------- */
+    const parcelStatus = document.getElementById('parcel-status');
+    function updateParcelStatus() {
+        if (map.getZoom() >= CONFIG.parcelMinZoom) {
+            parcelStatus.textContent = 'PARCELS: LIVE';
+            parcelStatus.className = 'status-indicator locked';
+        } else {
+            parcelStatus.textContent = 'PARCELS: ZOOM IN';
+            parcelStatus.className = 'status-indicator searching';
+        }
+    }
+    map.on('zoomend', updateParcelStatus);
+    updateParcelStatus();
+
+    /* ---------------- Live GPS ---------------- */
+    const gpsStatus = document.getElementById('gps-status');
+    let gpsMarker = null, gpsCircle = null, lastFix = null, watchId = null;
+
+    function startGeolocation(recenter) {
+        if (!('geolocation' in navigator)) {
+            gpsStatus.textContent = 'GPS: N/A';
+            return;
+        }
+        gpsStatus.textContent = 'GPS: SEARCHING';
+        gpsStatus.className = 'status-indicator searching';
+        if (watchId === null) {
+            watchId = navigator.geolocation.watchPosition(pos => {
+                const ll = [pos.coords.latitude, pos.coords.longitude];
+                lastFix = ll;
+                const acc = pos.coords.accuracy || 0;
+                gpsStatus.textContent = `GPS: LOCKED ±${Math.round(acc)}m`;
+                gpsStatus.className = 'status-indicator locked';
+                if (!gpsMarker) {
+                    gpsMarker = L.circleMarker(ll, { radius: 6, color: '#33ff77', weight: 2, fillColor: '#33ff77', fillOpacity: 1 }).addTo(map);
+                    gpsCircle = L.circle(ll, { radius: acc, color: '#33ff77', weight: 1, fillOpacity: 0.08 }).addTo(map);
+                } else {
+                    gpsMarker.setLatLng(ll);
+                    gpsCircle.setLatLng(ll).setRadius(acc);
+                }
+                if (recenter) { map.setView(ll, Math.max(map.getZoom(), 16)); recenter = false; }
+            }, err => {
+                gpsStatus.textContent = 'GPS: DENIED';
+                gpsStatus.className = 'status-indicator';
+                console.warn('Geolocation error:', err && err.message);
+            }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+        } else if (recenter && lastFix) {
+            map.setView(lastFix, Math.max(map.getZoom(), 16));
+        }
+    }
+    // Kick off GPS on load; browser will prompt for permission.
+    startGeolocation(false);
     </script>
 </body>
 </html>
