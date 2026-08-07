@@ -315,6 +315,24 @@
            the imagery stays readable underneath. */
         body.on-imagery .county-fill { fill-opacity: 0.06 !important; }
 
+        /* Tile-source credit: required by the imagery licences, sized so it never
+           competes with anything you actually need to read. Hidden in DRIVE. */
+        .leaflet-control-attribution {
+            background: rgba(0,0,0,0.45) !important;
+            color: #6a6a6a !important;
+            font-size: 9px !important;
+            padding: 1px 5px !important;
+            line-height: 1.4;
+            /* One thin line that truncates. Layers add their own credits as they load,
+               and left to wrap they climb the screen from the bottom-right. */
+            max-width: 62vw;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .leaflet-control-attribution a { color: #7a7a7a !important; text-decoration: none; }
+        body[data-mode="drive"] .leaflet-control-attribution { display: none; }
+
         /* Layer control legibility on dark */
         .leaflet-control-layers {
             background: rgba(15,15,15,0.95);
@@ -1116,7 +1134,7 @@
            This exists because "which build is actually on the phone?" was, for an
            hour, a question nobody could answer without reading header strings from
            memory — while GitHub Pages quietly served a build from four months back. */
-        build: '2026-08-06.7',
+        build: '2026-08-06.8',
 
         center: [39.9772, -95.2974],   // White Cloud, KS region
         zoom: 12,
@@ -1594,15 +1612,30 @@
     // misbehaves against esri-leaflet.
     const ROTATE_ENABLED = CONFIG.drive.rotationPlugin && !QS.has('norotate');
 
+    /* Attribution is on, but tiny and bottom-right. Esri's and CARTO's terms require
+       the credit; it is a licence condition, not a notice, so it stays out of the way
+       rather than being dropped. */
     const map = L.map('map', {
         zoomControl: false,
-        attributionControl: false,
+        attributionControl: true,
         rotate: ROTATE_ENABLED,
         rotateControl: false,
         bearing: 0,
         touchRotate: false,
         shiftKeyRotate: false
     }).setView(CONFIG.center, CONFIG.zoom);
+
+    /* Credit the data sources, not the toolkit — the licence conditions are about the
+       imagery, and screen width in a windscreen mount is not free.
+
+       Re-asserted on every layeradd because esri-leaflet rewrites the prefix to
+       "Leaflet | Powered by Esri" each time a feature layer joins the map, which
+       silently undid a single call made at startup. */
+    function trimAttribution() {
+        if (map.attributionControl) map.attributionControl.setPrefix('');
+    }
+    trimAttribution();
+    map.on('layeradd', trimAttribution);
 
     // True only if the plugin actually loaded AND the map accepted rotation.
     const ROTATION_AVAILABLE = !!(ROTATE_ENABLED && typeof map.setBearing === 'function' && map._rotate);
@@ -1613,24 +1646,62 @@
        road, how many outbuildings, whether that track is passable. Different jobs, so
        both, switchable, and the choice is remembered on the device.
 
-       Imagery is USGS National Map: public domain, no key, and the source this
-       operation already uses for offline basemaps elsewhere. NOTE its tile URLs are
-       {z}/{y}/{x} with Y BEFORE X and no file extension — both of which matter, the
-       first for correctness and the second because the service worker was matching
-       tiles by extension and would have cached none of these. */
+       IMAGERY SOURCE, measured rather than assumed. Over White Cloud:
+
+         USGS ImageryOnly   404s above z16, ~1 m      -> at drive zoom 17 every tile is
+                                                         an upscale. This is why the
+                                                         aerial looked like mush.
+         Esri World Imagery real tiles to z19, 0.34 m, captured Sept 2025
+         Esri Clarity       real tiles to z19, visibly sharper again at the same tile
+                            coordinates — houses, driveways and parked vehicles legible
+
+       Clarity is the default. Its tiles were checked against World Imagery at an
+       IDENTICAL z/y/x and show the same ground, because misregistered aerial on a
+       responder map is worse than blurry aerial. z20 from either is a 2,521-byte
+       placeholder — identical hash on every neighbour — so maxNativeZoom is 19 and
+       Leaflet upscales beyond that rather than requesting tiles that do not exist.
+
+       USGS stays available: public domain, government-sourced, and the sanctioned
+       source for bulk offline saves.
+
+       NOTE all three ArcGIS tile URLs are {z}/{y}/{x} — Y BEFORE X — and carry no file
+       extension. Both matter: the first for correctness, the second because the
+       service worker matched tiles by extension and would have cached none of them. */
+    const IMAGERY_PRIMARY  = 'https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+    const IMAGERY_FALLBACK = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+
     const BASEMAPS = {
         'Dark': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            maxZoom: 20, subdomains: 'abcd', maxNativeZoom: 20
+            maxZoom: 20, subdomains: 'abcd', maxNativeZoom: 20,
+            attribution: '&copy; OpenStreetMap, &copy; CARTO'
         }),
-        'Satellite': L.tileLayer(
+        'Satellite': L.tileLayer(IMAGERY_PRIMARY, {
+            maxZoom: 20, maxNativeZoom: 19,
+            attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics'
+        }),
+        'Satellite (USGS)': L.tileLayer(
             'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}', {
-            maxZoom: 20, maxNativeZoom: 16     // USGS stops at 16 here; above that Leaflet upscales
-        }),
-        'Satellite + roads': L.tileLayer(
-            'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}', {
-            maxZoom: 20, maxNativeZoom: 16
+            maxZoom: 20, maxNativeZoom: 16,
+            attribution: 'Imagery: USGS National Map'
         })
     };
+
+    /* If the sharper service starts refusing tiles in the field, fall back rather than
+       showing a blank map. Counted over the whole layer, not per tile: a handful of
+       misses at the edge of coverage is normal, a wall of them is the service going
+       away. One-way and one-time — flapping between sources mid-drive is worse. */
+    (function imageryFallback() {
+        const sat = BASEMAPS['Satellite'];
+        let errors = 0, swapped = false;
+        sat.on('tileerror', () => {
+            if (swapped || ++errors < 8) return;
+            swapped = true;
+            sat.setUrl(IMAGERY_FALLBACK);
+            console.warn('Imagery: primary refused tiles, fell back to Esri World Imagery');
+            if (typeof toast === 'function') toast('Switched to backup imagery source');
+        });
+        sat.on('tileload', () => { if (!swapped && errors) errors--; });
+    })();
 
     function loadBasemapChoice() {
         try {
@@ -4694,10 +4765,22 @@
 
         /* --- basemaps and the offline save that follows them --- */
         ok('a satellite base map is available', !!BASEMAPS['Satellite']);
-        ok('USGS tile template is {z}/{y}/{x}, not {z}/{x}/{y}',
+        ok('ArcGIS tile template is {z}/{y}/{x}, not {z}/{x}/{y}',
             /tile\/\{z\}\/\{y\}\/\{x\}$/.test(BASEMAPS['Satellite']._url), BASEMAPS['Satellite']._url);
         ok('every base map declares maxNativeZoom',
             Object.keys(BASEMAPS).every(k => BASEMAPS[k].options.maxNativeZoom != null));
+        // The blur was maxNativeZoom 16 under a drive zoom of 17: every tile upscaled.
+        ok('satellite resolves natively at drive zoom',
+            BASEMAPS['Satellite'].options.maxNativeZoom >= CONFIG.drive.zoom,
+            'maxNativeZoom ' + BASEMAPS['Satellite'].options.maxNativeZoom + ' vs drive z' + CONFIG.drive.zoom);
+        ok('satellite does not request z20 (placeholder tiles only)',
+            BASEMAPS['Satellite'].options.maxNativeZoom === 19);
+        ok('imagery has a fallback source distinct from the primary',
+            IMAGERY_FALLBACK && IMAGERY_PRIMARY && IMAGERY_FALLBACK !== IMAGERY_PRIMARY);
+        ok('every base map carries its required attribution',
+            Object.keys(BASEMAPS).every(k => !!BASEMAPS[k].options.attribution));
+        ok('USGS remains available for public-domain offline saves',
+            !!BASEMAPS['Satellite (USGS)']);
         (() => {
             const saved = activeBasemap;
             const of = name => { activeBasemap = name; return tileUrlsForView(15, 15); };
@@ -4708,19 +4791,35 @@
             ok('no {r} placeholder survives into a cached URL',
                 dark.every(u => u.indexOf('{r}') === -1 && u.indexOf('{s}') === -1), dark[0]);
 
+            /* Asserted against each layer's OWN template rather than a hardcoded host,
+               so swapping the imagery source cannot quietly invalidate the test. */
+            const hostOf = s => (s.match(/^https?:\/\/([^/]+)/) || [])[1] || '';
+            for (const name of Object.keys(BASEMAPS)) {
+                const urls = of(name);
+                // Strip the {s} label: CARTO rotates a-d, so compare the base domain.
+                const want = hostOf(BASEMAPS[name]._url).replace(/^\{s\}\./, '');
+                ok(`offline save follows the active base map: ${name}`,
+                    urls.length > 0 && urls.every(u => hostOf(u).endsWith(want)),
+                    urls[0] || '(none)');
+            }
+
+            // y/x ordering is the thing that silently saves the wrong tiles.
             const sat = of('Satellite');
-            ok('offline save FOLLOWS the active base map',
-                sat.length > 0 && sat.every(u => u.indexOf('nationalmap.gov') > -1), sat[0]);
-            // The y/x ordering is the thing that silently saves the wrong tiles.
-            ok('satellite URLs keep USGS y/x ordering', (() => {
+            ok('ArcGIS tile URLs keep y/x ordering', (() => {
                 const m = sat[0].match(/tile\/(\d+)\/(\d+)\/(\d+)$/);
                 if (!m) return false;
                 const r = tileRange(map.getBounds(), 15);
                 const z = +m[1], y = +m[2], x = +m[3];
                 return z === 15 && y >= r.y0 && y <= r.y1 && x >= r.x0 && x <= r.x1;
             })(), sat[0]);
-            ok('offline save never requests above maxNativeZoom',
-                (activeBasemap = 'Satellite', tileUrlsForView(17, 18).length === 0));
+
+            // Never request tiles the source does not have, whatever that ceiling is.
+            for (const name of Object.keys(BASEMAPS)) {
+                const mnz = BASEMAPS[name].options.maxNativeZoom;
+                activeBasemap = name;
+                ok(`offline save stops at maxNativeZoom (${name} = ${mnz})`,
+                    tileUrlsForView(mnz + 1, mnz + 2).length === 0);
+            }
 
             activeBasemap = saved;
         })();
