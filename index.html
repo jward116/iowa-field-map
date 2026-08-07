@@ -1111,6 +1111,16 @@
         #selftest.on { display: block; }
         #selftest .pass { color: #33ff77; }
         #selftest .fail { color: #ff5555; font-weight: bold; }
+        /* Launched from a button now, not only from a URL, so there has to be a way
+           back that isn't reloading the page. */
+        #selftest-close {
+            position: fixed;
+            top: 10px; right: 10px;
+            z-index: 1501;
+            display: none;
+        }
+        #selftest.on ~ #selftest-close,
+        #selftest-close.on { display: block; }
     </style>
 </head>
 <body data-mode="map">
@@ -1244,6 +1254,23 @@
         <div id="setup-list"></div>
         <h5 style="margin:16px 0 6px;color:#ffcc33;font-size:11px;letter-spacing:1px">OFFLINE MAP</h5>
         <div id="setup-offline"></div>
+
+        <!-- Reachable without a URL bar. Added to the Home Screen this runs standalone
+             with no address bar at all, so ?sim=1 and ?livecheck=1 were unreachable on
+             the one device that matters. -->
+        <h5 style="margin:16px 0 6px;color:#ffcc33;font-size:11px;letter-spacing:1px">TOOLS &amp; TESTING</h5>
+        <p class="setup-intro" style="margin-bottom:8px">
+            <b>SIMULATOR</b> drives a route you draw on the map, so drive mode can be tried
+            from a desk. <b>SERVICE CHECK</b> queries every endpoint for real and prints a
+            sample record from each &mdash; run it from the phone when something looks wrong
+            in the field, and it will tell you whether the problem is the app, the service,
+            or your signal.</p>
+        <div class="sim-btns">
+            <button type="button" class="feed-btn" id="setup-sim">&#9654; SIMULATOR</button>
+            <button type="button" class="feed-btn" id="setup-livecheck">SERVICE CHECK</button>
+            <button type="button" class="feed-btn" id="setup-selftest">SELF TEST</button>
+        </div>
+
         <div class="sim-btns" style="margin-top:16px">
             <button type="button" class="feed-btn" id="setup-testall">TEST ALL</button>
             <button type="button" class="feed-btn" id="setup-copy">COPY CONFIG</button>
@@ -1253,6 +1280,7 @@
     </div></div>
 
     <div id="selftest"></div>
+    <button type="button" class="feed-btn" id="selftest-close">CLOSE</button>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <!-- Optional. If this fails to load, the `rotate` map option below is simply an
@@ -1276,7 +1304,7 @@
            This exists because "which build is actually on the phone?" was, for an
            hour, a question nobody could answer without reading header strings from
            memory — while GitHub Pages quietly served a build from four months back. */
-        build: '2026-08-06.9',
+        build: '2026-08-06.10',
 
         center: [39.9772, -95.2974],   // White Cloud, KS region
         zoom: 12,
@@ -4866,6 +4894,31 @@
     function closeSetup() { document.getElementById('setup-modal').classList.remove('on'); }
 
     document.getElementById('setup-close').addEventListener('click', closeSetup);
+
+    /* ---- Tools, reachable without a URL bar ----
+       Added to the Home Screen the app runs standalone with no address bar, so
+       ?sim=1 and ?livecheck=1 could not be typed on the one device that matters.
+       The five-tap gesture on the title still works and stays undocumented. */
+    document.getElementById('setup-sim').addEventListener('click', () => {
+        closeSetup();
+        if (sim.on) { disableSim(); toast('Simulator off'); return; }
+        enableSim();
+        toast('Simulator on — tap the map to draw a route, then SEED HOUSES and PLAY', 7000);
+    });
+    function showTestPanel() {
+        document.getElementById('selftest-close').classList.add('on');
+    }
+    function hideTestPanel() {
+        document.getElementById('selftest').classList.remove('on');
+        document.getElementById('selftest-close').classList.remove('on');
+    }
+    document.getElementById('selftest-close').addEventListener('click', hideTestPanel);
+    document.getElementById('setup-livecheck').addEventListener('click', () => {
+        closeSetup(); showTestPanel(); runLiveCheck();
+    });
+    document.getElementById('setup-selftest').addEventListener('click', () => {
+        closeSetup(); showTestPanel(); runSelftest();
+    });
     document.getElementById('setup-testall').addEventListener('click', async () => {
         for (const [id] of SERVICE_SLOTS) await runOneTest(id);
     });
