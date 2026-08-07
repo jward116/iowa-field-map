@@ -50,7 +50,9 @@ const SHELL = [
 const isTile = url =>
     /basemaps\.cartocdn\.com/.test(url) ||
     /basemap\.nationalmap\.gov/.test(url) ||
-    /\/MapServer\/tile\/\d+\/\d+\/\d+/.test(url) ||
+    /clarity\.maptiles\.arcgis\.com/.test(url) ||
+    /server\.arcgisonline\.com/.test(url) ||
+    /\/MapServer\/tile\/\d+\/\d+\/\d+/.test(url) ||   // any ArcGIS tile, incl. future sources
     /\.(png|jpg|jpeg|webp)(\?|$)/.test(url);
 
 /* A GIS query must never be served from cache — stale ownership is worse than none,
