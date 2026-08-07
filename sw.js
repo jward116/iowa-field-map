@@ -42,17 +42,32 @@ const SHELL = [
     'https://unpkg.com/esri-leaflet@3.0.10/dist/esri-leaflet.js'
 ];
 
+/* Tile detection cannot rely on a file extension. USGS National Map serves its tiles
+   as `.../MapServer/tile/{z}/{y}/{x}` with no extension at all, so an extension-only
+   rule cached none of them and "SAVE THIS AREA" on satellite would have quietly saved
+   nothing — the failure only showing up in a dead zone, which is the one place it
+   matters. Matched by host and by the ArcGIS tile path shape as well. */
 const isTile = url =>
-    /basemaps\.cartocdn\.com/.test(url) || /\.(png|jpg|jpeg|webp)(\?|$)/.test(url);
+    /basemaps\.cartocdn\.com/.test(url) ||
+    /basemap\.nationalmap\.gov/.test(url) ||
+    /\/MapServer\/tile\/\d+\/\d+\/\d+/.test(url) ||
+    /\.(png|jpg|jpeg|webp)(\?|$)/.test(url);
 
 /* A GIS query must never be served from cache — stale ownership is worse than none,
    and a replayed route is worse still. Matched on shape rather than hostname so a
-   service or router repointed in SETUP is covered without editing this file. */
+   service or router repointed in SETUP is covered without editing this file.
+
+   Tiles are excluded FIRST and deliberately. A USGS basemap tile lives at
+   `/MapServer/tile/...`, which matches the MapServer rule, and the fetch handler
+   tests isLiveData before isTile — so without this exclusion every satellite tile
+   would be sent straight to the network and the offline basemap would be empty. */
 const isLiveData = url =>
-    /\/(MapServer|FeatureServer)\//i.test(url) ||
-    /\/rest\/services\//i.test(url) ||
-    /\/route\/v\d\//i.test(url) ||          // OSRM, wherever it is hosted
-    /\/(GeocodeServer)\//i.test(url);
+    !isTile(url) && (
+        /\/(MapServer|FeatureServer)\//i.test(url) ||
+        /\/rest\/services\//i.test(url) ||
+        /\/route\/v\d\//i.test(url) ||      // OSRM, wherever it is hosted
+        /\/(GeocodeServer)\//i.test(url)
+    );
 
 self.addEventListener('install', event => {
     event.waitUntil((async () => {

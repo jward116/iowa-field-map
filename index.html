@@ -158,6 +158,16 @@
             color: #00d6b2;
             border-color: #00d6b2;
         }
+        .juris-chip.goarea {
+            background: rgba(51, 255, 119, 0.14);
+            color: #33ff77;
+            border-color: #33ff77;
+            font: inherit;
+            font-size: 11px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+        }
         @media (max-width: 600px) {
             #juris-county { font-size: 15px; letter-spacing: 0.5px; }
             .juris-chip { font-size: 10px; padding: 2px 6px; }
@@ -275,6 +285,35 @@
             text-shadow: 0 0 4px #000, 0 0 8px #000;
         }
         .county-label::before { display: none; }
+
+        /* House-number labels. A hard black halo rather than a filled box: over aerial
+           a box per structure covers the ground you are trying to read, and over dark
+           it would be noise. Not clickable, so it never steals a tap from its dot. */
+        .addr-label {
+            background: transparent;
+            border: 0;
+            box-shadow: none;
+            padding: 0;
+            color: #b7ffcf;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.3px;
+            pointer-events: none;
+            text-shadow: 0 0 3px #000, 0 0 3px #000, 1px 1px 2px #000, -1px -1px 2px #000;
+        }
+        .addr-label::before { display: none; }
+
+        /* Over aerial the dark-map palette washes out — pale roofs and dry ground sit
+           right where these colours live. Labels get a heavier halo and the boundary
+           lines a dark casing so they stay findable without repainting the app. */
+        body.on-imagery .addr-label { color: #d7ffe6; font-size: 12px;
+            text-shadow: 0 0 2px #000, 0 0 4px #000, 0 0 6px #000, 1px 1px 2px #000; }
+        body.on-imagery .county-label { color: #dfe8f2;
+            text-shadow: 0 0 3px #000, 0 0 6px #000, 0 0 9px #000; }
+        body.on-imagery .leaflet-interactive { paint-order: stroke; }
+        /* County tints are calibrated for a near-black base; halve them over aerial so
+           the imagery stays readable underneath. */
+        body.on-imagery .county-fill { fill-opacity: 0.06 !important; }
 
         /* Layer control legibility on dark */
         .leaflet-control-layers {
@@ -1077,11 +1116,12 @@
            This exists because "which build is actually on the phone?" was, for an
            hour, a question nobody could answer without reading header strings from
            memory — while GitHub Pages quietly served a build from four months back. */
-        build: '2026-08-06.6',
+        build: '2026-08-06.7',
 
         center: [39.9772, -95.2974],   // White Cloud, KS region
         zoom: 12,
         parcelMinZoom: 15,             // parcels only render when zoomed in (dense statewide layers)
+        addressMinZoom: 15,            // house-number labels; below this they overplot into mush
 
         /* Reservation boundary — Census TIGERweb AIANNHA, sublayer 2 = federal
            reservations, 3 = off-reservation trust land.
@@ -1299,6 +1339,7 @@
             enabled: true,
             key: 'iowa-field-map.passlog.v1',
             prefsKey: 'iowa-field-map.prefs.v1',
+            basemapKey: 'iowa-field-map.basemap.v1',
             autosaveMs: 2000
         },
 
@@ -1566,10 +1607,53 @@
     // True only if the plugin actually loaded AND the map accepted rotation.
     const ROTATION_AVAILABLE = !!(ROTATE_ENABLED && typeof map.setBearing === 'function' && map._rotate);
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 20,
-        subdomains: 'abcd'
-    }).addTo(map);
+    /* ---------------- Base maps ----------------
+       Dark is right for reading road geometry at night. Aerial is right for working
+       out how you will actually get onto a property — where the drive comes off the
+       road, how many outbuildings, whether that track is passable. Different jobs, so
+       both, switchable, and the choice is remembered on the device.
+
+       Imagery is USGS National Map: public domain, no key, and the source this
+       operation already uses for offline basemaps elsewhere. NOTE its tile URLs are
+       {z}/{y}/{x} with Y BEFORE X and no file extension — both of which matter, the
+       first for correctness and the second because the service worker was matching
+       tiles by extension and would have cached none of these. */
+    const BASEMAPS = {
+        'Dark': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 20, subdomains: 'abcd', maxNativeZoom: 20
+        }),
+        'Satellite': L.tileLayer(
+            'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 20, maxNativeZoom: 16     // USGS stops at 16 here; above that Leaflet upscales
+        }),
+        'Satellite + roads': L.tileLayer(
+            'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 20, maxNativeZoom: 16
+        })
+    };
+
+    function loadBasemapChoice() {
+        try {
+            const v = localStorage.getItem(CONFIG.storage.basemapKey);
+            return (v && BASEMAPS[v]) ? v : 'Dark';
+        } catch (e) { return 'Dark'; }
+    }
+    let activeBasemap = loadBasemapChoice();
+    BASEMAPS[activeBasemap].addTo(map);
+
+    /* Overlay colours were picked against a near-black base; over aerial the same
+       lines vanish into pale ground. A class on <body> lets the CSS lift label
+       contrast, and the vector layers get a heavier casing. */
+    function applyBasemapContrast() {
+        document.body.classList.toggle('on-imagery', activeBasemap !== 'Dark');
+    }
+    applyBasemapContrast();
+
+    map.on('baselayerchange', e => {
+        activeBasemap = e.name;
+        try { localStorage.setItem(CONFIG.storage.basemapKey, e.name); } catch (err) {}
+        applyBasemapContrast();
+    });
 
     const overlays = {};   // for the layer control
 
@@ -1648,7 +1732,8 @@
                     opacity: 0.9,
                     fill: !!j,
                     fillColor: j ? j.color : cfg.color,
-                    fillOpacity: j ? CONFIG.jurisdiction.fillOpacity : 0
+                    fillOpacity: j ? CONFIG.jurisdiction.fillOpacity : 0,
+                    className: 'county-fill'      // lets CSS thin the tint over aerial
                 };
             }
         });
@@ -2091,9 +2176,59 @@
         if (CONFIG.parcels.ks.on) ksParcels.addTo(map);
     }
 
-    /* ---------------- Address points (optional GeoJSON) ----------------
-       Also retained flat in ng911Features so the drive engine can match against
-       them with zero extra network. An absent file is a normal state, not an error. */
+    /* ---------------- Live NG911 address points, ON THE MAP ----------------
+       These services fed the drive feed and the search from the start, but were never
+       drawn. The only address layer was the optional local GeoJSON, which is absent by
+       default — so MAP mode showed no addresses at all, on a map whose whole job is
+       addresses. Everything needed was already configured; nothing rendered it.
+
+       Drawn as a numbered dot per structure: at a stop or on an approach the house
+       number is the thing you need, and reading it off the map beats tapping for it.
+       Gated at addressMinZoom because these are statewide layers — the county filter
+       keeps the payload sane, the zoom gate keeps the label density readable. */
+    function addAddressLayer(stateKey) {
+        const cfg = CONFIG.addressServices[stateKey];
+        if (!cfg.url) return null;
+        const lyr = L.esri.featureLayer({
+            url: cfg.url,
+            where: cfg.countyWhere || '1=1',
+            minZoom: CONFIG.addressMinZoom,
+            pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+                radius: 4,
+                color: '#001a0a',
+                weight: 1,
+                fillColor: CONFIG.addressPoints.color,
+                fillOpacity: 0.95
+            })
+        });
+        lyr.bindPopup(l => buildAddressPopup(l.feature.properties, centroidOf(l.feature.geometry)));
+        lyr.on('createfeature', e => {
+            const layer = lyr.getFeature(e.feature.id);
+            if (!layer || !layer.bindTooltip) return;
+            // The house number alone. The full record is one tap away, and a whole
+            // address per dot is unreadable once there is more than a handful.
+            const rec = addressRecord(e.feature.properties);
+            const num = rec && (rec.line1.match(/^\d+[A-Za-z]?/) || [])[0];
+            if (num) {
+                layer.bindTooltip(num, {
+                    permanent: true, direction: 'right', offset: [6, 0],
+                    className: 'addr-label', opacity: 1
+                });
+            }
+        });
+        lyr.on('requesterror', e => console.warn('Address layer error:', cfg.url, e && e.message));
+        return lyr;
+    }
+
+    const ksAddr = addAddressLayer('ks');
+    if (ksAddr) { overlays['KS addresses (NG911)'] = ksAddr; ksAddr.addTo(map); }
+    const neAddr = addAddressLayer('ne');
+    if (neAddr) { overlays['NE addresses (NG911)'] = neAddr; neAddr.addTo(map); }
+
+    /* ---------------- Address points (optional local GeoJSON) ----------------
+       For tribal points that are in neither state's NG911. Retained flat in
+       ng911Features so the drive engine can match against them with zero extra
+       network. An absent file is a normal state, not an error. */
     let ng911Features = [];
     let ng911Loaded = false;
 
@@ -2134,7 +2269,12 @@
         });
 
     /* ---------------- Layer control ---------------- */
-    L.control.layers(null, overlays, { position: 'topright', collapsed: false }).addTo(map);
+    /* Collapsed on phones: expanded, the control now lists three base maps plus six
+       overlays and covers most of a 430 px screen. */
+    L.control.layers(BASEMAPS, overlays, {
+        position: 'topright',
+        collapsed: window.innerWidth < 700
+    }).addTo(map);
 
     /* ---------------- Big touch zoom + Locate controls ---------------- */
     L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -2256,11 +2396,16 @@
             jurisEls.county.textContent = c.name + ' CO, ' + c.state;
             jurisEls.county.style.color = c.color;
             jurisEls.bar.style.background = c.color;
+            els.body.classList.remove('off-area');
         } else if (countyPolys.length) {
-            // Outside all three: real information, not a failure. You have left the map's ground.
-            jurisEls.county.textContent = pt ? 'OUTSIDE COVERAGE AREA' : 'COUNTY —';
+            /* Outside all three. This is the normal state when planning from a desk or
+               from home, so it says what the map IS showing rather than just what you
+               are not inside — and offers the way back. Earlier this read only
+               "OUTSIDE COVERAGE AREA", which looks identical to the app being broken. */
+            jurisEls.county.textContent = pt ? 'OUTSIDE AREA — VIEWING 3 COUNTIES' : 'COUNTY —';
             jurisEls.county.style.color = '#8a8a8a';
             jurisEls.bar.style.background = '#555';
+            if (pt) els.body.classList.add('off-area');
         } else {
             jurisEls.county.textContent = 'COUNTY —';
             jurisEls.county.style.color = '#8a8a8a';
@@ -2270,8 +2415,28 @@
         let chips = '';
         if (res) chips += '<span class="juris-chip res">ON RESERVATION</span>';
         if (tr)  chips += '<span class="juris-chip trust">TRUST LAND</span>';
+        // A way back. Without it, following your own GPS out of the area leaves the
+        // map somewhere with no data and no obvious route home.
+        if (!c && pt && countyPolys.length) {
+            chips += '<button type="button" class="juris-chip goarea" id="btn-goarea">SHOW AREA</button>';
+        }
         jurisEls.chips.innerHTML = chips;
     }
+
+    /* Frame all three counties. Also what DRIVE falls back to when your fix is well
+       outside them — following GPS to empty ground helps nobody. */
+    function showCoverageArea() {
+        if (!countyPolys.length) { map.setView(CONFIG.center, CONFIG.zoom); return; }
+        let b = null;
+        for (const c of countyPolys) {
+            const gl = L.geoJSON({ type: 'Feature', geometry: c.geometry, properties: {} }).getBounds();
+            b = b ? b.extend(gl) : gl;
+        }
+        if (b && b.isValid()) map.fitBounds(b, { padding: [20, 20] });
+    }
+    document.addEventListener('click', e => {
+        if (e.target && e.target.id === 'btn-goarea') { e.preventDefault(); showCoverageArea(); }
+    });
 
     /* =======================================================================
        LIVE GPS
@@ -3506,6 +3671,15 @@
     async function enterDrive() {
         if (MODE === 'drive') return;
 
+        /* Entering DRIVE from outside the three counties would follow your GPS to
+           ground this map has no data for — an empty screen, every source reporting 0,
+           looking for all the world like the app is broken. It is a legitimate thing to
+           do (testing, or driving in), so it is a warning and not a block. */
+        if (curFix && countyPolys.length && !countyAt(toLL(curFix.latlng))) {
+            toast('You are outside Doniphan, Brown and Richardson — ' +
+                  'drive mode will follow your GPS, but there is no address data there.', 6000);
+        }
+
         // Started inside the click gesture — a screen wake lock requested after an
         // await would be rejected by the browser as not user-initiated.
         await requestWakeLock();
@@ -4294,15 +4468,34 @@
             y0: Math.max(0, lat2y(bounds.getNorth())), y1: Math.min(n - 1, lat2y(bounds.getSouth()))
         };
     }
+    /* Build the tile list from the ACTIVE base layer's own URL template rather than a
+       hardcoded one. Saving the dark basemap while looking at satellite would report
+       a cheerful "saved 900 tiles" and leave you with a blank aerial in a dead zone.
+
+       Reads the template off the Leaflet layer, so a base map added later is covered
+       without touching this. Note USGS orders its path {z}/{y}/{x}; substituting by
+       name rather than position is what keeps that correct. */
     function tileUrlsForView(zMin, zMax) {
+        const layer = BASEMAPS[activeBasemap];
+        const tpl = layer && layer._url;
+        if (!tpl) return [];
+        const opts = layer.options || {};
+        const subs = typeof opts.subdomains === 'string'
+            ? opts.subdomains.split('') : (opts.subdomains || ['a']);
+        // Never request above what the source actually has; USGS stops at 16 here and
+        // higher zooms are Leaflet upscaling tiles it already holds.
+        const top = Math.min(zMax, opts.maxNativeZoom != null ? opts.maxNativeZoom : zMax);
+
         const b = map.getBounds();
         const urls = [];
-        const subs = 'abcd';
-        for (let z = zMin; z <= zMax; z++) {
+        for (let z = zMin; z <= top; z++) {
             const r = tileRange(b, z);
             for (let x = r.x0; x <= r.x1; x++) {
                 for (let y = r.y0; y <= r.y1; y++) {
-                    urls.push(`https://${subs[(x + y) % 4]}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`);
+                    urls.push(tpl
+                        .replace('{s}', subs[(x + y) % subs.length])
+                        .replace('{z}', z).replace('{x}', x).replace('{y}', y)
+                        .replace('{r}', ''));      // no retina variant when pre-caching
                 }
             }
         }
@@ -4498,6 +4691,51 @@
             String(addrFromProps({ SITUS_ADDR: '88 Situs Ln' })));
         ok('getField is exact, not substring',
             getField({ MYADDNUM: '9' }, ['addnum']) === null && getField({ ADDNUM: '9' }, ['addnum']) === '9');
+
+        /* --- basemaps and the offline save that follows them --- */
+        ok('a satellite base map is available', !!BASEMAPS['Satellite']);
+        ok('USGS tile template is {z}/{y}/{x}, not {z}/{x}/{y}',
+            /tile\/\{z\}\/\{y\}\/\{x\}$/.test(BASEMAPS['Satellite']._url), BASEMAPS['Satellite']._url);
+        ok('every base map declares maxNativeZoom',
+            Object.keys(BASEMAPS).every(k => BASEMAPS[k].options.maxNativeZoom != null));
+        (() => {
+            const saved = activeBasemap;
+            const of = name => { activeBasemap = name; return tileUrlsForView(15, 15); };
+
+            const dark = of('Dark');
+            ok('offline save on Dark builds carto URLs',
+                dark.length > 0 && dark.every(u => u.indexOf('cartocdn.com') > -1), dark[0]);
+            ok('no {r} placeholder survives into a cached URL',
+                dark.every(u => u.indexOf('{r}') === -1 && u.indexOf('{s}') === -1), dark[0]);
+
+            const sat = of('Satellite');
+            ok('offline save FOLLOWS the active base map',
+                sat.length > 0 && sat.every(u => u.indexOf('nationalmap.gov') > -1), sat[0]);
+            // The y/x ordering is the thing that silently saves the wrong tiles.
+            ok('satellite URLs keep USGS y/x ordering', (() => {
+                const m = sat[0].match(/tile\/(\d+)\/(\d+)\/(\d+)$/);
+                if (!m) return false;
+                const r = tileRange(map.getBounds(), 15);
+                const z = +m[1], y = +m[2], x = +m[3];
+                return z === 15 && y >= r.y0 && y <= r.y1 && x >= r.x0 && x <= r.x1;
+            })(), sat[0]);
+            ok('offline save never requests above maxNativeZoom',
+                (activeBasemap = 'Satellite', tileUrlsForView(17, 18).length === 0));
+
+            activeBasemap = saved;
+        })();
+
+        /* --- addresses are actually ON the map --- */
+        ok('KS NG911 points are a map layer, not just an engine source',
+            !!overlays['KS addresses (NG911)']);
+        ok('NE NG911 points are a map layer', !!overlays['NE addresses (NG911)']);
+        ok('address layers are county-scoped',
+            (CONFIG.addressServices.ks.countyWhere || '').indexOf('DONIPHAN') > -1 &&
+            (CONFIG.addressServices.ne.countyWhere || '').indexOf('Richardson') > -1);
+        ok('house-number label is the leading number only', (() => {
+            const rec = addressRecord({ LABEL: '1302 N CHAY DR' });
+            return (rec.line1.match(/^\d+[A-Za-z]?/) || [])[0] === '1302';
+        })());
 
         /* --- tile maths for the offline area save --- */
         ok('tileRange at z0 is a single tile', (() => {
