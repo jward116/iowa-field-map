@@ -1304,7 +1304,7 @@
            This exists because "which build is actually on the phone?" was, for an
            hour, a question nobody could answer without reading header strings from
            memory — while GitHub Pages quietly served a build from four months back. */
-        build: '2026-08-06.10',
+        build: '2026-08-07.1',
 
         center: [39.9772, -95.2974],   // White Cloud, KS region
         zoom: 12,
@@ -1832,7 +1832,12 @@
        Leaflet upscales beyond that rather than requesting tiles that do not exist.
 
        USGS stays available: public domain, government-sourced, and the sanctioned
-       source for bulk offline saves.
+       source for bulk offline saves. That last part is enforced, not just documented —
+       only a layer carrying `bulkSave: true` can be pre-cached by SAVE THIS AREA.
+       CARTO and Esri are fine to *browse*; their terms forbid bulk pre-fetching, and
+       bulk-downloading a tile service that forbids it is what got an earlier map of
+       ours blocked. Rate-limiting does not fix it — the policy bars the activity
+       itself, not the speed. Public-domain federal imagery has no such restriction.
 
        NOTE all three ArcGIS tile URLs are {z}/{y}/{x} — Y BEFORE X — and carry no file
        extension. Both matter: the first for correctness, the second because the
@@ -1852,7 +1857,8 @@
         'Satellite (USGS)': L.tileLayer(
             'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}', {
             maxZoom: 20, maxNativeZoom: 16,
-            attribution: 'Imagery: USGS National Map'
+            attribution: 'Imagery: USGS National Map',
+            bulkSave: true          // public domain; the only layer we may pre-cache
         })
     };
 
@@ -4818,6 +4824,10 @@
         const tpl = layer && layer._url;
         if (!tpl) return [];
         const opts = layer.options || {};
+        // Refuse at the source, not just in the UI. Every caller of this function is a
+        // bulk pre-fetch, so a layer without bulkSave has no legitimate reason to reach
+        // the service worker's CACHE_TILES list — see the BASEMAPS note on why.
+        if (!opts.bulkSave) return [];
         const subs = typeof opts.subdomains === 'string'
             ? opts.subdomains.split('') : (opts.subdomains || ['a']);
         // Never request above what the source actually has; USGS stops at 16 here and
@@ -4851,19 +4861,30 @@
                 `It will work on the published site, not on a plain <code>file://</code> copy.</div>`;
             return;
         }
+        // Only a sanctioned layer can be pre-cached, so say which one and why rather
+        // than leaving a dead button. The driver's fix is one tap on the basemap switch.
+        const savable = !!((BASEMAPS[activeBasemap] || {}).options || {}).bulkSave;
+        const savableName = Object.keys(BASEMAPS)
+            .find(n => (BASEMAPS[n].options || {}).bulkSave) || 'Satellite (USGS)';
+
         let estimate = 0;
         try { estimate = tileUrlsForView(OFFLINE_ZOOM_MIN, OFFLINE_ZOOM_MAX).length; } catch (e) {}
         const over = estimate > OFFLINE_TILE_CAP;
+        const blocked = !savable || over;
         el.innerHTML = `
             <div class="setup-result idle">Stored now: <b>${cacheStatus.tiles || 0}</b> tiles` +
             `${cacheStatus.max ? ' (cap ' + cacheStatus.max + ')' : ''}. ` +
             `The app itself already opens without signal.</div>
-            <div class="setup-result ${over ? 'warn' : 'idle'}" style="margin-top:6px">
-                Current view, zoom ${OFFLINE_ZOOM_MIN}–${OFFLINE_ZOOM_MAX}: <b>${estimate}</b> tiles${
-                over ? ` — over the ${OFFLINE_TILE_CAP} limit. Zoom in before saving.` : '.'}
+            <div class="setup-result ${blocked ? 'warn' : 'idle'}" style="margin-top:6px">${
+                !savable
+                    ? `<b>${activeBasemap}</b> cannot be saved for offline use — its provider's terms
+                       forbid bulk downloading. Switch the basemap to <b>${savableName}</b>
+                       (public domain) and this will enable.`
+                    : `Current view, zoom ${OFFLINE_ZOOM_MIN}–${OFFLINE_ZOOM_MAX}: <b>${estimate}</b> tiles${
+                       over ? ` — over the ${OFFLINE_TILE_CAP} limit. Zoom in before saving.` : '.'}`}
             </div>
             <div class="sim-btns">
-                <button type="button" class="feed-btn" id="offline-save" ${over ? 'disabled' : ''}>SAVE THIS AREA</button>
+                <button type="button" class="feed-btn" id="offline-save" ${blocked ? 'disabled' : ''}>SAVE THIS AREA</button>
                 <button type="button" class="feed-btn danger" id="offline-clear">CLEAR TILES</button>
             </div>
             <div class="setup-result idle" id="offline-result">Pan and zoom to the area you will be driving, then save.</div>`;
@@ -4872,7 +4893,9 @@
         if (save) save.addEventListener('click', () => {
             if (cachingBusy) return;
             const urls = tileUrlsForView(OFFLINE_ZOOM_MIN, OFFLINE_ZOOM_MAX);
-            if (urls.length > OFFLINE_TILE_CAP) return;
+            // Empty means either nothing in view or an unsanctioned basemap; either way
+            // there is nothing to post, and an empty CACHE_TILES reads as a success.
+            if (!urls.length || urls.length > OFFLINE_TILE_CAP) return;
             if (!swPost({ type: 'CACHE_TILES', urls })) {
                 document.getElementById('offline-result').textContent =
                     'Service worker not active yet — reload once, then try again.';
@@ -5077,36 +5100,44 @@
             const saved = activeBasemap;
             const of = name => { activeBasemap = name; return tileUrlsForView(15, 15); };
 
-            const dark = of('Dark');
-            ok('offline save on Dark builds carto URLs',
-                dark.length > 0 && dark.every(u => u.indexOf('cartocdn.com') > -1), dark[0]);
-            ok('no {r} placeholder survives into a cached URL',
-                dark.every(u => u.indexOf('{r}') === -1 && u.indexOf('{s}') === -1), dark[0]);
-
-            /* Asserted against each layer's OWN template rather than a hardcoded host,
-               so swapping the imagery source cannot quietly invalidate the test. */
-            const hostOf = s => (s.match(/^https?:\/\/([^/]+)/) || [])[1] || '';
+            /* The bulk-save allowlist, asserted both ways. A provider whose terms forbid
+               bulk downloading must build NO url list at all — this is the check that
+               keeps a future basemap from quietly becoming pre-cacheable. */
             for (const name of Object.keys(BASEMAPS)) {
+                const allowed = !!BASEMAPS[name].options.bulkSave;
                 const urls = of(name);
-                // Strip the {s} label: CARTO rotates a-d, so compare the base domain.
-                const want = hostOf(BASEMAPS[name]._url).replace(/^\{s\}\./, '');
-                ok(`offline save follows the active base map: ${name}`,
-                    urls.length > 0 && urls.every(u => hostOf(u).endsWith(want)),
+                ok(`offline save ${allowed ? 'permitted' : 'refused'} for ${name}`,
+                    allowed ? urls.length > 0 : urls.length === 0,
                     urls[0] || '(none)');
             }
+            ok('exactly one basemap is cleared for bulk offline saves',
+                Object.keys(BASEMAPS).filter(n => BASEMAPS[n].options.bulkSave).length === 1);
+            ok('the cleared basemap is the public-domain USGS one',
+                !!BASEMAPS['Satellite (USGS)'].options.bulkSave);
+
+            /* Asserted against the layer's OWN template rather than a hardcoded host,
+               so swapping the imagery source cannot quietly invalidate the test. */
+            const hostOf = s => (s.match(/^https?:\/\/([^/]+)/) || [])[1] || '';
+            const usgs = of('Satellite (USGS)');
+            ok('offline save follows the active base map',
+                usgs.every(u => hostOf(u).endsWith(hostOf(BASEMAPS['Satellite (USGS)']._url))),
+                usgs[0]);
+            ok('no {r} or {s} placeholder survives into a cached URL',
+                usgs.every(u => u.indexOf('{r}') === -1 && u.indexOf('{s}') === -1), usgs[0]);
 
             // y/x ordering is the thing that silently saves the wrong tiles.
-            const sat = of('Satellite');
             ok('ArcGIS tile URLs keep y/x ordering', (() => {
-                const m = sat[0].match(/tile\/(\d+)\/(\d+)\/(\d+)$/);
+                const m = usgs[0].match(/tile\/(\d+)\/(\d+)\/(\d+)$/);
                 if (!m) return false;
                 const r = tileRange(map.getBounds(), 15);
                 const z = +m[1], y = +m[2], x = +m[3];
                 return z === 15 && y >= r.y0 && y <= r.y1 && x >= r.x0 && x <= r.x1;
-            })(), sat[0]);
+            })(), usgs[0]);
 
-            // Never request tiles the source does not have, whatever that ceiling is.
-            for (const name of Object.keys(BASEMAPS)) {
+            /* Never request tiles the source does not have, whatever that ceiling is.
+               Only meaningful for a layer that can be saved at all — for the others the
+               allowlist above already forces zero, which would pass this vacuously. */
+            for (const name of Object.keys(BASEMAPS).filter(n => BASEMAPS[n].options.bulkSave)) {
                 const mnz = BASEMAPS[name].options.maxNativeZoom;
                 activeBasemap = name;
                 ok(`offline save stops at maxNativeZoom (${name} = ${mnz})`,
