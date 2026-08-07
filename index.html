@@ -378,39 +378,18 @@
             text-shadow: 0 0 6px rgba(51,255,119,0.5);
         }
 
-        /* Drive HUD — speed, heading, accuracy, count, source health */
-        #drive-hud {
-            display: none;
-            pointer-events: auto;
-            background: rgba(15, 15, 15, 0.95);
-            border-bottom: 1px solid #333;
-            padding: 8px 14px 10px;
-            color: #ddd;
-        }
-        body[data-mode="drive"] #drive-hud { display: block; }
-        .hud-row {
-            display: flex;
-            align-items: baseline;
-            gap: 16px;
-            flex-wrap: wrap;
-        }
-        .hud-speed {
-            font-family: 'Consolas', 'Courier New', monospace;
-            font-size: 36px;
-            font-weight: 900;
-            line-height: 1;
-            color: #00ff00;
-            min-width: 62px;
-            text-align: right;
-        }
-        .hud-unit { font-size: 12px; color: #8a8a8a; letter-spacing: 1px; }
-        .hud-stat {
-            font-family: 'Consolas', 'Courier New', monospace;
-            font-size: 13px;
-            color: #c8c8c8;
-        }
-        .hud-stat b { color: #33ff77; font-weight: 700; }
-        .hud-spacer { flex: 1 1 auto; }
+        /* =========================================================================
+           DRIVE LAYOUT
+
+           Shaped after a turn-by-turn navigator, and deliberately the SAME shape
+           whether or not a route is running: a guidance card on top, the map, a status
+           bar along the bottom. Only the content swaps. A layout that rearranges itself
+           the moment you start or finish a route forces the driver to re-find
+           everything at exactly the wrong moment.
+
+             routing      -> card: next manoeuvre.   bar: arrival, time left, distance
+             not routing  -> card: next address up.  bar: where you are, what's logged
+           ========================================================================= */
         .hud-btn {
             appearance: none;
             -webkit-appearance: none;
@@ -431,12 +410,149 @@
             color: #33ff77;
             border-color: #33ff77;
         }
-        .hud-sources {
+
+        /* ---- Guidance card ---- */
+        #guide-card {
+            display: none;
+            pointer-events: auto;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 14px;
+            background: #14301f;              /* navigator green, holds at arm's length */
+            border-bottom: 1px solid #1d4a2e;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.55);
+        }
+        body[data-mode="drive"] #guide-card { display: flex; }
+        #guide-icon {
+            flex: none;
+            width: 46px;
+            text-align: center;
+            font-size: 40px;
+            line-height: 1;
+            color: #fff;
+        }
+        #guide-main { flex: 1 1 auto; min-width: 0; }
+        #guide-dist {
+            font-size: 27px;
+            font-weight: 900;
+            line-height: 1.05;
+            color: #fff;
+            letter-spacing: 0.5px;
+        }
+        #guide-text {
+            font-size: 15px;
+            font-weight: 600;
+            color: #b6dcc4;
+            margin-top: 1px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        #guide-side {
+            flex: none;
+            font-size: 22px;
+            font-weight: 900;
+            color: #8fd6a8;
+            min-width: 20px;
+            text-align: center;
+        }
+        /* Idle / nothing to guide on: drop the green so it never reads as guidance. */
+        #guide-card.idle { background: rgba(15,15,15,0.95); border-bottom-color: #333; }
+        #guide-card.idle #guide-icon,
+        #guide-card.idle #guide-dist { color: #8a8a8a; }
+        #guide-card.idle #guide-text { color: #6a6a6a; }
+
+        /* The manoeuvre after next — the "then" line, small, only while routing. */
+        #guide-then {
+            display: none;
+            pointer-events: auto;
+            padding: 4px 14px 5px 74px;
+            background: #102718;
+            border-bottom: 1px solid #1d4a2e;
+            font-size: 12px;
+            color: #7fae91;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        body[data-mode="drive"] #guide-then.on { display: block; }
+
+        /* ---- Bottom status bar ---- */
+        #nav-bar {
+            display: none;
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            z-index: 1100;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+            background: rgba(12, 12, 12, 0.97);
+            border-top: 1px solid #333;
+            box-shadow: 0 -4px 10px rgba(0,0,0,0.5);
+        }
+        body[data-mode="drive"] #nav-bar { display: flex; }
+        #speed-pill {
+            flex: none;
             display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 54px; height: 54px;
+            border-radius: 50%;
+            background: #0a0a0a;
+            border: 2px solid #333;
+        }
+        #speed-pill b {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 21px; font-weight: 900; line-height: 1; color: #fff;
+        }
+        #speed-pill span { font-size: 8px; color: #7a7a7a; letter-spacing: 1px; }
+        #nav-bar-main { flex: 1 1 auto; min-width: 0; }
+        #nav-bar-primary {
+            font-size: 17px; font-weight: 800; color: #eaeaea;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        #nav-bar-sub {
+            display: flex; gap: 9px; align-items: center;
+            margin-top: 2px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11px; color: #8a8a8a;
+            white-space: nowrap; overflow: hidden;
+        }
+        #data-chip {
+            font-family: inherit; font-size: 10px; font-weight: 800; letter-spacing: 0.5px;
+            padding: 1px 6px; border-radius: 3px; cursor: pointer;
+            border: 1px solid #33ff77; color: #33ff77; background: rgba(51,255,119,0.12);
+        }
+        #data-chip.bad { border-color: #ff4444; color: #ff4444; background: rgba(255,0,0,0.14); }
+        #data-chip.warn { border-color: #ffcc33; color: #ffcc33; background: rgba(255,200,0,0.14); }
+        .nav-bar-btn {
+            flex: none;
+            appearance: none; -webkit-appearance: none;
+            border: 1px solid #333; background: #171717; color: #b9b9b9;
+            font: inherit; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+            border-radius: 5px; height: 42px; min-width: 42px; padding: 0 11px;
+            cursor: pointer;
+        }
+        .nav-bar-btn[aria-pressed="true"] {
+            background: rgba(0,255,0,0.16); color: #33ff77; border-color: #33ff77;
+        }
+        .nav-bar-btn.danger { color: #ff8888; border-color: #663333; }
+        .nav-bar-btn.danger[hidden] { display: none; }
+
+        /* Source badges collapse behind the DATA chip: a navigator's bottom bar has no
+           room for six, and their detail is only wanted when one goes red. */
+        .hud-sources {
+            display: none;
+            pointer-events: auto;
             gap: 6px;
             flex-wrap: wrap;
-            margin-top: 8px;
+            padding: 7px 12px;
+            background: rgba(12,12,12,0.97);
+            border-top: 1px solid #222;
         }
+        body[data-mode="drive"] #drive-hud.show-sources .hud-sources { display: flex; }
+        #drive-hud { pointer-events: auto; }
         .hud-sources .status-indicator { font-size: 10px; padding: 3px 6px; }
 
         /* Drive-mode chrome suppression — the map you already have, minus the bits
@@ -460,14 +576,19 @@
             .system-title { font-size: 11px; letter-spacing: 0.5px; }
             .seg-toggle button { min-width: 52px; padding: 0 10px; font-size: 11px; }
             .status-indicator { font-size: 10px; padding: 3px 6px; }
-            .hud-row { gap: 10px; }
-            .hud-speed { font-size: 30px; min-width: 52px; }
-            /* The map is the point; don't let the HUD push it off the screen. */
-            .hud-spacer { display: none; }
             .hud-btn { height: 30px; padding: 0 9px; font-size: 10px; }
-            .hud-sources { gap: 4px; margin-top: 6px; }
+            .hud-sources { gap: 4px; padding: 6px 10px; }
             .hud-sources .status-indicator { font-size: 9px; padding: 2px 5px; letter-spacing: 0; }
-            #drive-hud { padding: 6px 10px 8px; }
+            /* The map is the point; keep the chrome off it. */
+            #guide-card { padding: 10px 11px; gap: 11px; }
+            #guide-icon { width: 38px; font-size: 33px; }
+            #guide-dist { font-size: 23px; }
+            #guide-text { font-size: 13px; }
+            #nav-bar { gap: 7px; padding: 6px 9px calc(6px + env(safe-area-inset-bottom, 0px)); }
+            #speed-pill { width: 46px; height: 46px; }
+            #speed-pill b { font-size: 18px; }
+            #nav-bar-primary { font-size: 15px; }
+            .nav-bar-btn { height: 38px; min-width: 38px; padding: 0 8px; font-size: 10px; }
         }
 
         /* Position arrow. leaflet-rotate positions marker icons in the *unrotated*
@@ -537,7 +658,14 @@
             flex-direction: column;
             padding-bottom: env(safe-area-inset-bottom, 0px);
         }
-        body[data-mode="drive"] #feed-sheet { display: flex; }
+        /* In DRIVE the log sits ABOVE the status bar rather than over it. --nav-h is
+           measured from the bar itself (see syncNavHeight) because its height moves
+           with safe-area inset and text size. */
+        body[data-mode="drive"] #feed-sheet {
+            display: flex;
+            bottom: var(--nav-h, 0px);
+            padding-bottom: 0;
+        }
         #feed-handle {
             flex: none;
             height: 26px;
@@ -650,6 +778,10 @@
             color: #6a6a6a;
             border-top: 1px solid #1e1e1e;
         }
+        /* At the peek detent the note is most of what's visible, and it is a standing
+           fact about the log rather than anything you need while moving. It comes back
+           as soon as the sheet is opened. */
+        body[data-mode="drive"] #feed-sheet:not(.open) #feed-note { display: none; }
 
         /* Landscape / wide: the sheet becomes a right rail so the map keeps its height */
         @media (orientation: landscape) and (min-width: 720px) {
@@ -1003,29 +1135,39 @@
                 <div id="juris-chips"></div>
             </div>
         </div>
-        <div id="nav-strip">
-            <div id="nav-arrow">&#8593;</div>
-            <div id="nav-main">
-                <div id="nav-step">&mdash;</div>
-                <div id="nav-dest"></div>
+        <!-- Guidance card. The same shape at all times: a glyph, a distance, and the
+             one line that matters. Routing fills it with the next manoeuvre; not
+             routing, with the next address you are coming up on. -->
+        <div id="guide-card">
+            <div id="guide-icon">&#9679;</div>
+            <div id="guide-main">
+                <div id="guide-dist">&mdash;</div>
+                <div id="guide-text">Waiting for GPS</div>
             </div>
-            <div id="nav-eta"><span id="nav-eta-time">--</span><small id="nav-eta-dist">--</small></div>
-            <button type="button" class="feed-btn danger" id="nav-cancel">END</button>
+            <div id="guide-side"></div>
         </div>
+        <div id="guide-then"></div>
         <div id="drive-hud">
-            <div class="hud-row">
-                <div class="hud-speed" id="hud-speed">--</div>
-                <div class="hud-unit">MPH</div>
-                <div class="hud-stat" id="hud-heading">HDG --</div>
-                <div class="hud-stat" id="hud-acc">&plusmn;--m</div>
-                <div class="hud-stat"><b id="hud-count">0</b> LOGGED</div>
-                <div class="hud-spacer"></div>
-                <button type="button" class="hud-btn" id="btn-headingup" aria-pressed="false">HDG UP</button>
-                <button type="button" class="hud-btn" id="btn-setup">SETUP</button>
-            </div>
             <div class="hud-sources" id="hud-sources"></div>
-            <div id="ahead"><div id="ahead-none">LOOKING AHEAD&hellip;</div></div>
         </div>
+    </div>
+
+    <!-- Bottom status bar, always present in DRIVE. Routing: arrival clock, time and
+         distance left. Not routing: where you are and what has been logged. -->
+    <div id="nav-bar">
+        <div id="speed-pill"><b id="hud-speed">--</b><span>mph</span></div>
+        <div id="nav-bar-main">
+            <div id="nav-bar-primary">&mdash;</div>
+            <div id="nav-bar-sub">
+                <span id="hud-heading">HDG --</span>
+                <span id="hud-acc">&plusmn;--m</span>
+                <span id="data-chip" title="Tap for per-source detail">DATA</span>
+            </div>
+        </div>
+        <button type="button" class="nav-bar-btn" id="btn-headingup" aria-pressed="false">HDG&nbsp;UP</button>
+        <button type="button" class="nav-bar-btn" id="btn-setup">&#9881;</button>
+        <button type="button" class="nav-bar-btn danger" id="nav-cancel">END</button>
+        <span id="hud-count" hidden>0</span>
     </div>
 
     <div id="readout" class="readout">
@@ -1134,7 +1276,7 @@
            This exists because "which build is actually on the phone?" was, for an
            hour, a question nobody could answer without reading header strings from
            memory — while GitHub Pages quietly served a build from four months back. */
-        build: '2026-08-06.8',
+        build: '2026-08-06.9',
 
         center: [39.9772, -95.2974],   // White Cloud, KS region
         zoom: 12,
@@ -2626,7 +2768,7 @@
             applyDriveCamera(f);
             updateVehicle(f);
             updateHud(f);
-            renderAhead(f);         // what is coming up, not what was passed
+
         }
     }
 
@@ -2689,6 +2831,9 @@
         if (n != null) st.n = n;
         st.msg = msg || '';
         renderSourceBadges();
+        // The chip stands in for the badges, so it has to move when they do rather
+        // than waiting for the next GPS fix to repaint it.
+        if (typeof renderDataChip === 'function') renderDataChip();
     }
 
     function mergeCandidates(list) {
@@ -2866,29 +3011,9 @@
         return out.slice(0, cfg.show);
     }
 
-    function renderAhead(f) {
-        const el = document.getElementById('ahead');
-        if (!el) return;
-        if (MODE !== 'drive') { el.classList.remove('on'); return; }
-        el.classList.add('on');
-
-        const list = scanAhead(f);
-        if (!list.length) {
-            el.innerHTML = '<div id="ahead-none">' +
-                (f && f.headingKnown ? 'NO ADDRESSES AHEAD' : 'WAITING FOR HEADING') + '</div>';
-            return;
-        }
-        el.innerHTML = list.map(h => {
-            // Feet under a tenth of a mile: on approach that is the useful unit.
-            const ft = h.along / 0.3048;
-            const dist = ft < 528 ? Math.round(ft / 10) * 10 + ' ft'
-                                  : (h.along / 1609.344).toFixed(1) + ' mi';
-            return `<div class="ahead-row">` +
-                   `<span class="ahead-dist">${esc(dist)}</span>` +
-                   `<span class="ahead-side">${h.side}</span>` +
-                   `<span class="ahead-addr">${esc(h.c.address)}</span></div>`;
-        }).join('');
-    }
+    /* The approach list is now rendered by renderGuide() into the guidance card, so
+       what is coming up occupies the same place as the next manoeuvre rather than a
+       panel of its own. scanAhead above is unchanged and still the source for both. */
 
     /* Late-arriving candidates.
 
@@ -3324,12 +3449,14 @@
        route state is only replaced on success.
        ======================================================================= */
     const navEls = {
-        strip: document.getElementById('nav-strip'),
-        arrow: document.getElementById('nav-arrow'),
-        step: document.getElementById('nav-step'),
-        dest: document.getElementById('nav-dest'),
-        etaTime: document.getElementById('nav-eta-time'),
-        etaDist: document.getElementById('nav-eta-dist')
+        card:    document.getElementById('guide-card'),
+        icon:    document.getElementById('guide-icon'),
+        dist:    document.getElementById('guide-dist'),
+        text:    document.getElementById('guide-text'),
+        side:    document.getElementById('guide-side'),
+        then:    document.getElementById('guide-then'),
+        primary: document.getElementById('nav-bar-primary'),
+        cancel:  document.getElementById('nav-cancel')
     };
 
     let route = null;           // {line:[{lat,lng}], steps:[...], distance, duration}
@@ -3361,7 +3488,11 @@
         switch (m.type) {
             case 'depart':   return s.name ? 'Head ' + (m.modifier || '') + ' on ' + s.name : 'Start';
             case 'arrive':   return 'Arrive' + (m.modifier ? ' on the ' + m.modifier : '');
-            case 'turn':     return 'Turn ' + (m.modifier || '') + road;
+            // OSRM emits turn/straight for a junction you go straight through; "Turn
+            // straight onto Main St" is not something anyone says.
+            case 'turn':     return (m.modifier === 'straight')
+                                    ? 'Continue' + road
+                                    : 'Turn ' + (m.modifier || '') + road;
             case 'new name': return 'Continue' + road;
             case 'continue': return 'Continue ' + (m.modifier || '') + road;
             case 'merge':    return 'Merge ' + (m.modifier || '') + road;
@@ -3470,17 +3601,17 @@
     }
 
     function showNav() {
-        navEls.strip.classList.add('on');
-        navEls.dest.textContent = destination ? formatAddress(destination.rec) : '';
         renderNav(null);
+        renderGuide(curFix);
     }
 
     function endRoute() {
         route = null; destination = null; offRouteCount = 0;
         if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
         if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
-        navEls.strip.classList.remove('on');
         setSourceState('router', 'idle', 0, 'no active route');
+        // The layout does not change shape — it goes back to reporting approaches.
+        renderGuide(curFix);
     }
 
     /* Progress along the route. Called on every fix; cheap because it only walks the
@@ -3535,22 +3666,113 @@
         }
     }
 
+    /* Held so the guidance card can be redrawn on any fix without recomputing the
+       route walk, which only updateRouteProgress does. */
+    let navState = null;   // {stepIdx, distToStep, remainM, remainS}
+
     function renderNav(nextIdx, offM, toDestM) {
-        if (!route) return;
+        if (!route) { navState = null; return; }
         const i = (nextIdx == null) ? 0 : nextIdx;
-        const s = route.steps[i];
-        if (s) {
-            navEls.step.textContent = s.text;
-            navEls.arrow.textContent = s.glyph;
-        }
+
         // Remaining distance from the steps still ahead; ETA scaled from the route's
         // own average speed, which is closer than a fixed assumption on gravel.
         let remain = 0;
         for (let k = i; k < route.steps.length; k++) remain += route.steps[k].distance;
         if (toDestM != null && remain < toDestM) remain = toDestM;
         const speed = route.distance > 0 ? route.distance / route.duration : 12;
-        navEls.etaDist.textContent = fmtDist(remain);
-        navEls.etaTime.textContent = fmtDur(remain / (speed || 12));
+
+        navState = {
+            stepIdx: i,
+            // Distance to the manoeuvre itself, which is what the card counts down.
+            distToStep: (curFix && route.steps[i] && route.steps[i].at)
+                ? haversine(toLL(curFix.latlng), route.steps[i].at) : null,
+            remainM: remain,
+            remainS: remain / (speed || 12)
+        };
+    }
+
+    /* ---------------- One layout, two contents ----------------
+       The guidance card and the status bar keep the same shape at all times. Routing
+       fills them with the manoeuvre and the arrival; not routing, with the address you
+       are coming up on and where you are. Nothing moves between the two states, so
+       there is nothing to re-find at the moment a route starts or ends. */
+    function renderGuide(f) {
+        if (MODE !== 'drive') return;
+        const bar = document.getElementById('nav-bar-primary');
+
+        if (route && navState) {
+            const s = route.steps[navState.stepIdx];
+            navEls.card.classList.remove('idle');
+            navEls.icon.textContent = s ? s.glyph : '↑';
+            navEls.dist.textContent = navState.distToStep != null
+                ? fmtDist(navState.distToStep) : fmtDist(navState.remainM);
+            navEls.text.textContent = s ? s.text : '';
+            navEls.side.textContent = '';
+            navEls.cancel.hidden = false;
+
+            // The manoeuvre after next, the way a navigator previews it.
+            const nxt = route.steps[navState.stepIdx + 1];
+            if (nxt) {
+                navEls.then.textContent = 'then ' + nxt.glyph + '  ' + nxt.text;
+                navEls.then.classList.add('on');
+            } else {
+                navEls.then.classList.remove('on');
+            }
+
+            // Arrival clock, then time and distance left — a navigator's bottom bar.
+            // 12-hour: this is dispatched against radio traffic and duty logs in the
+            // US, and 20:29 is a translation step nobody needs at the wheel.
+            const eta = new Date(Date.now() + navState.remainS * 1000);
+            const clock = eta.toLocaleTimeString('en-US',
+                { hour: 'numeric', minute: '2-digit' });
+            bar.textContent = clock + '   ·   ' +
+                fmtDur(navState.remainS) + '   ·   ' + fmtDist(navState.remainM);
+            return;
+        }
+
+        // No route: the same card reports what you are coming up on.
+        navEls.then.classList.remove('on');
+        navEls.cancel.hidden = true;
+        const ahead = scanAhead(f);
+        if (ahead.length) {
+            const h = ahead[0];
+            navEls.card.classList.remove('idle');
+            navEls.icon.textContent = h.side === 'R' ? '↱' : '↰';
+            const ft = h.along / 0.3048;
+            navEls.dist.textContent = ft < 528 ? Math.round(ft / 10) * 10 + ' ft'
+                                               : (h.along / 1609.344).toFixed(1) + ' mi';
+            navEls.text.textContent = h.c.address;
+            navEls.side.textContent = h.side;
+        } else {
+            navEls.card.classList.add('idle');
+            navEls.icon.textContent = '●';
+            navEls.dist.textContent = '—';
+            navEls.text.textContent = (f && f.headingKnown)
+                ? 'No addresses ahead' : 'Waiting for heading';
+            navEls.side.textContent = '';
+        }
+        bar.textContent = (currentCounty ? currentCounty.name + ' CO, ' + currentCounty.state
+                                         : 'Outside coverage') +
+                          '   ·   ' + passLog.length + ' logged';
+    }
+
+    /* One chip standing in for six badges. Green unless a source is actually failing,
+       because a wall of status is not readable at speed — but a source going down
+       still has to be visible, so the chip turns and the detail is one tap away. */
+    function renderDataChip() {
+        const el = document.getElementById('data-chip');
+        if (!el) return;
+        let bad = 0, warn = 0, ok = 0;
+        for (const s of SOURCES) {
+            const st = sourceState[s.key] || {};
+            if (st.status === 'error') bad++;
+            else if (st.status === 'partial') warn++;
+            else if (st.status === 'ok') ok++;
+        }
+        el.className = bad ? 'bad' : (warn ? 'warn' : '');
+        el.textContent = bad ? 'DATA ' + bad + ' ERR'
+                       : warn ? 'DATA PARTIAL'
+                       : ok ? 'DATA ' + ok + ' OK' : 'DATA';
     }
 
     /* =======================================================================
@@ -3622,7 +3844,10 @@
         const r = els.sheet.getBoundingClientRect();
         // In the landscape right-rail layout the sheet doesn't eat vertical space.
         if (r.width < window.innerWidth * 0.9) return 0;
-        return r.height;
+        // The status bar is below the sheet, so the camera has to clear both.
+        const nav = parseFloat(
+            getComputedStyle(document.documentElement).getPropertyValue('--nav-h')) || 0;
+        return r.height + nav;
     }
 
     /* Where the map should be centred so the vehicle sits low on screen (look-ahead).
@@ -3696,6 +3921,8 @@
             ? `${cardinal(f.headingDeg)} ${Math.round(f.headingDeg)}°` : 'HDG --';
         els.hudAcc.textContent = `±${Math.round(f.accuracy)}m`;
         els.hudCount.textContent = String(passLog.length);
+        renderGuide(f);        // card + bottom bar, whichever content applies
+        renderDataChip();
     }
 
     function renderSourceBadges() {
@@ -3760,8 +3987,10 @@
         const savedCenter = map.getCenter(), savedZoom = map.getZoom();
         mutate(() => {}, () => map.setView(savedCenter, savedZoom, { animate: false }));
 
-        mutate(() => { els.body.dataset.mode = 'drive'; },
-               () => { els.body.dataset.mode = 'map'; });
+        // ResizeObserver won't fire when the bar merely un-hides, so measure explicitly
+        // on both edges of the mode change.
+        mutate(() => { els.body.dataset.mode = 'drive'; syncNavHeight(); },
+               () => { els.body.dataset.mode = 'map'; syncNavHeight(); });
 
         mutate(() => { els.btnDrive.setAttribute('aria-pressed', 'true'); els.btnMap.setAttribute('aria-pressed', 'false'); },
                () => { els.btnDrive.setAttribute('aria-pressed', 'false'); els.btnMap.setAttribute('aria-pressed', 'true'); });
@@ -3811,7 +4040,8 @@
 
         if (curFix) { applyDriveCamera(curFix); updateVehicle(curFix); updateHud(curFix); }
         else { startGeolocation(true); }
-        renderAhead(curFix);        // populate immediately rather than on the next fix
+        renderGuide(curFix);        // fill the card immediately rather than on the next fix
+        renderDataChip();
     }
 
     function exitDrive() {
@@ -3855,17 +4085,26 @@
        FEED UI
        ======================================================================= */
     let feedFilter = 'all';
-    const DETENTS = [0.16, 0.45, 0.78];   // peek / half / full, as a fraction of viewport height
+    /* peek / half / full, as a fraction of viewport height. The peek is deliberately
+       tight: with a guidance card above and a status bar below, every pixel the log
+       takes at rest comes straight out of the map. */
+    const DETENTS = [0.11, 0.45, 0.78];
     let detentIdx = 0;
 
     function applyDetent() {
         const landscapeRail = window.innerWidth > window.innerHeight && window.innerWidth >= 720;
         els.sheet.style.height = landscapeRail ? '' : Math.round(DETENTS[detentIdx] * window.innerHeight) + 'px';
+        // Anything past the peek counts as open, which is what restores the log's
+        // footer note and lets CSS treat the two states differently.
+        els.sheet.classList.toggle('open', landscapeRail || detentIdx > 0);
         positionRecenter();
         if (MODE === 'drive' && curFix && followLock) applyDriveCamera(curFix);
     }
     function positionRecenter() {
-        els.recenter.style.bottom = (sheetHeightPx() + 16) + 'px';
+        // Clear the log sheet AND the status bar beneath it.
+        const nav = parseFloat(
+            getComputedStyle(document.documentElement).getPropertyValue('--nav-h')) || 0;
+        els.recenter.style.bottom = (sheetHeightPx() + nav + 16) + 'px';
     }
     els.handle.addEventListener('click', () => {
         detentIdx = (detentIdx + 1) % DETENTS.length;
@@ -5174,8 +5413,18 @@
         const h = document.getElementById('ui-layer').getBoundingClientRect().height;
         document.documentElement.style.setProperty('--ui-top', Math.round(h + 6) + 'px');
     }
+    /* Same idea at the bottom: the status bar's height is not a constant — safe-area
+       inset on a notched phone and the user's text size both move it — and the log
+       sheet and the re-centre button both have to clear it. */
+    function syncNavHeight() {
+        const bar = document.getElementById('nav-bar');
+        const h = (MODE === 'drive' && bar) ? bar.getBoundingClientRect().height : 0;
+        document.documentElement.style.setProperty('--nav-h', Math.round(h) + 'px');
+        if (typeof positionRecenter === 'function') positionRecenter();
+    }
     if (window.ResizeObserver) {
         new ResizeObserver(syncUiTop).observe(document.getElementById('ui-layer'));
+        new ResizeObserver(syncNavHeight).observe(document.getElementById('nav-bar'));
     }
     window.addEventListener('orientationchange', () => setTimeout(syncUiTop, 250));
     syncUiTop();
@@ -5184,6 +5433,11 @@
     document.getElementById('btn-search').addEventListener('click', openSearch);
     document.getElementById('search-close').addEventListener('click', closeSearch);
     document.getElementById('nav-cancel').addEventListener('click', endRoute);
+
+    // The six per-source badges live behind the DATA chip; tap to see which one is red.
+    document.getElementById('data-chip').addEventListener('click', () => {
+        document.getElementById('drive-hud').classList.toggle('show-sources');
+    });
 
     searchEls.input.addEventListener('input', e => {
         const term = e.target.value.trim();
